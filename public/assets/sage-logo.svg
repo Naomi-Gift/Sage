@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 80" fill="none">
+  <!-- Wordmark: "Sage" in dark navy -->
+  <text
+    x="8" y="52"
+    font-family="'Inter', 'Helvetica Neue', Arial, sans-serif"
+    font-size="52"
+    font-weight="800"
+    letter-spacing="-2"
+    fill="#130F2E"
+  >Sage</text>
+  <!-- Purple arc underline -->
+  <path
+    d="M8 66 Q100 82 168 60"
+    stroke="#7C6AF0"
+    stroke-width="3.5"
+    stroke-linecap="round"
+    fill="none"
+  />
+  <!-- Green dot at end of arc -->
+  <circle cx="168" cy="60" r="7" fill="#00C97B"/>
+</svg>

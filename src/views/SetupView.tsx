@@ -65,7 +65,13 @@ export function SetupView({
 
         {/* Copy — always first on mobile via order */}
         <div className="landing-copy">
-          <p className="setup-wordmark">Sage</p>
+          <img
+            src="/assets/sage-logo.svg"
+            alt="Sage"
+            className="landing-logo"
+            width="110"
+            height="40"
+          />
           <h1>Your G$<br /><em>grows itself.</em></h1>
           <p>Set it once. Sage saves a slice of every daily GoodDollar claim and puts it to work — automatically.</p>
 

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- App icon: "S" on brand purple with green dot -->
+  <rect width="64" height="64" rx="16" fill="#7C6AF0"/>
+  <text
+    x="10" y="46"
+    font-family="'Inter', 'Helvetica Neue', Arial, sans-serif"
+    font-size="42"
+    font-weight="800"
+    letter-spacing="-2"
+    fill="#FFFFFF"
+  >S</text>
+  <circle cx="46" cy="42" r="8" fill="#00C97B"/>
+</svg>
