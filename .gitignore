@@ -1,0 +1,14 @@
+node_modules
+dist
+artifacts
+cache
+out
+broadcast
+coverage
+.env
+.env.local
+typechain-types
+*.log
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
