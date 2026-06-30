@@ -1,6 +1,5 @@
 import { createPublicClient, createWalletClient, custom, http, parseAbi, type WalletClient } from 'viem';
-import { celo } from 'viem/chains';
-import { appConfig } from './config';
+import { appChain, appConfig } from './config';
 
 export const sageVaultAbi = parseAbi([
   'function setInstruction(uint256 percentBps, string goalLabel) external',
@@ -14,7 +13,7 @@ export const sageVaultAbi = parseAbi([
 ]);
 
 export const publicClient = createPublicClient({
-  chain: celo,
+  chain: appChain,
   transport: http(appConfig.rpcUrl)
 });
 
@@ -24,15 +23,13 @@ export async function connectInjectedWallet() {
   }
 
   const walletClient = createWalletClient({
-    chain: celo,
+    chain: appChain,
     transport: custom(window.ethereum)
   });
   const [address] = await walletClient.requestAddresses();
   return { walletClient, address };
 }
 
-/// Reads the on-chain position for a connected address.
-/// Returns null if the vault address is not configured (mock mode).
 export async function readPosition(address: `0x${string}`) {
   if (!appConfig.vaultAddress) return null;
 
@@ -52,9 +49,6 @@ export async function readPosition(address: `0x${string}`) {
   ]);
 
   const [principalDepositedGD, stableSupplied] = rawPos;
-  // principalDepositedGD = G$ originally deposited
-  // withdrawableGD = current G$ value of the stable position
-  // difference is yield earned in G$ terms
   const principalGD = Number(principalDepositedGD) / 1e18;
   const currentGD   = Number(withdrawableGD) / 1e18;
   const yieldGD     = Math.max(0, currentGD - principalGD);
@@ -66,8 +60,6 @@ export async function readPosition(address: `0x${string}`) {
   };
 }
 
-/// Reads the on-chain instruction for a connected address.
-/// Returns null if the vault address is not configured (mock mode).
 export async function readInstruction(address: `0x${string}`) {
   if (!appConfig.vaultAddress) return null;
 
@@ -93,7 +85,7 @@ export async function writeInstruction(
 
   return walletClient.writeContract({
     account: address,
-    chain: celo,
+    chain: appChain,          // ← always matches the deployed network
     address: appConfig.vaultAddress,
     abi: sageVaultAbi,
     functionName: 'setInstruction',
@@ -108,7 +100,7 @@ export async function writePause(walletClient: WalletClient, address: `0x${strin
 
   return walletClient.writeContract({
     account: address,
-    chain: celo,
+    chain: appChain,
     address: appConfig.vaultAddress,
     abi: sageVaultAbi,
     functionName: 'pauseInstruction'
@@ -127,7 +119,7 @@ export async function writeWithdraw(
 
   return walletClient.writeContract({
     account: address,
-    chain: celo,
+    chain: appChain,
     address: appConfig.vaultAddress,
     abi: sageVaultAbi,
     functionName: 'withdraw',
