@@ -18,26 +18,20 @@ import type { ActivityEvent, Instruction, Milestone, Position } from './types';
 
 type View = 'setup' | 'dashboard' | 'about';
 
-// G$ token addresses per chain
-const G_DOLLAR_ADDRESS: Record<number, `0x${string}`> = {
-  42220:    '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A', // Celo mainnet
-  11142220: '0x084DA2de8Cfa7CF714b66c006eAC80791B396A88', // Celo Sepolia (mock deployed)
-};
-
 export function App() {
-  const [view,         setView]         = useState<View>(() => localStorage.getItem('sage.setupComplete') ? 'dashboard' : 'setup');
-  const [address,      setAddress]      = useState<`0x${string}`>();
-  const [walletClient, setWalletClient] = useState<WalletClient>();
-  const [instruction,  setInstruction]  = useState<Instruction>(defaultInstruction);
-  const [position,     setPosition]     = useState<Position>(defaultPosition);
-  const [gdBalance,    setGdBalance]    = useState<number | null>(null);
-  const [streak,       setStreak]       = useState(() => Number(localStorage.getItem('sage.streak') || 14));
-  const [activity,     setActivity]     = useState<ActivityEvent[]>(defaultActivity);
-  const [milestones,   setMilestones]   = useState<Milestone[]>(defaultMilestones);
-  const [notice,       setNotice]       = useState('');
-  const [noticeType,   setNoticeType]   = useState<'info' | 'success' | 'error'>('info');
-  const [saving,       setSaving]       = useState(false);
-  const [pausing,      setPausing]      = useState(false);
+  const [view,        setView]        = useState<View>(() => localStorage.getItem('sage.setupComplete') ? 'dashboard' : 'setup');
+  const [address,     setAddress]     = useState<`0x${string}`>();
+  const [walletClient,setWalletClient]= useState<WalletClient>();
+  const [instruction, setInstruction] = useState<Instruction>(defaultInstruction);
+  const [position,    setPosition]    = useState<Position>(defaultPosition);
+  const [gdBalance,   setGdBalance]   = useState<number | null>(null);
+  const [streak,      setStreak]      = useState(() => Number(localStorage.getItem('sage.streak') || 14));
+  const [activity,    setActivity]    = useState<ActivityEvent[]>(defaultActivity);
+  const [milestones,  setMilestones]  = useState<Milestone[]>(defaultMilestones);
+  const [notice,      setNotice]      = useState('');
+  const [noticeType,  setNoticeType]  = useState<'info' | 'success' | 'error'>('info');
+  const [saving,      setSaving]      = useState(false);
+  const [pausing,     setPausing]     = useState(false);
   const apy = MOCK_APY;
 
   function showNotice(msg: string, type: 'info' | 'success' | 'error' = 'info') {
@@ -46,32 +40,22 @@ export function App() {
   }
 
   async function loadChainState(addr: `0x${string}`) {
-    const gDollarAddr = G_DOLLAR_ADDRESS[appChain.id];
-    const loads: Promise<void>[] = [];
+    await Promise.all([
+      // G$ wallet balance
+      readGDollarBalance(addr, appConfig.gDollarAddress)
+        .then(setGdBalance)
+        .catch(() => {}),
 
-    // Load G$ wallet balance
-    if (gDollarAddr) {
-      loads.push(
-        readGDollarBalance(addr, gDollarAddr).then(setGdBalance).catch(() => {})
-      );
-    }
-
-    // Load vault state
-    if (appConfig.vaultAddress) {
-      loads.push(
-        Promise.all([
-          readInstruction(addr),
-          readPosition(addr),
-        ]).then(([onChainInstruction, onChainPosition]) => {
+      // Vault instruction + position
+      Promise.all([readInstruction(addr), readPosition(addr)])
+        .then(([onChainInstruction, onChainPosition]) => {
           if (onChainInstruction) {
             setInstruction(prev => ({ ...onChainInstruction, goalTargetGD: prev.goalTargetGD }));
           }
           if (onChainPosition) setPosition(onChainPosition);
-        }).catch(() => {})
-      );
-    }
-
-    await Promise.all(loads);
+        })
+        .catch(() => {}),
+    ]);
   }
 
   async function connect() {
@@ -100,32 +84,29 @@ export function App() {
           instruction.percentBps,
           instruction.goalLabel
         );
-        // Transaction confirmed — show success with hash link
         const explorerBase = appChain.blockExplorers?.default?.url ?? '';
         const txUrl = explorerBase ? `${explorerBase}/tx/${hash}` : '';
         showNotice(
           txUrl
-            ? `✅ Savings rule is active! View transaction: ${txUrl}`
+            ? `✅ Savings rule active! View tx: ${txUrl}`
             : `✅ Savings rule is active! Tx: ${hash}`,
           'success'
         );
-        // Refresh on-chain state
         await loadChainState(nextAddress);
       } else {
-        // Preview mode (no wallet connected yet)
         showNotice(
-          `Preview: Sage will save ${instruction.percentBps / 100}% of each claim. Connect a wallet to activate.`,
+          `Preview: Sage will save ${instruction.percentBps / 100}% of each claim. Connect a wallet to activate on-chain.`,
           'info'
         );
       }
 
       setInstruction(prev => ({ ...prev, active: instruction.percentBps > 0 }));
       localStorage.setItem('sage.setupComplete', 'true');
-      window.setTimeout(() => setView('dashboard'), 600);
+      window.setTimeout(() => setView('dashboard'), 800);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Could not save instruction.', 'error');
     } finally {
-      window.setTimeout(() => setSaving(false), 600);
+      window.setTimeout(() => setSaving(false), 800);
     }
   }
 
@@ -142,11 +123,9 @@ export function App() {
     setPausing(true);
     try {
       if (instruction.active) {
-        if (walletClient && address) {
-          await writePause(walletClient, address);
-        }
+        if (walletClient && address) await writePause(walletClient, address);
         setInstruction(prev => ({ ...prev, active: false }));
-        showNotice('✅ Saving paused. Your existing savings keep earning yield.', 'success');
+        showNotice('✅ Saving paused. Your savings keep earning yield.', 'success');
       } else {
         if (walletClient && address) {
           await writeInstruction(walletClient, address, instruction.percentBps, instruction.goalLabel);
@@ -163,7 +142,6 @@ export function App() {
 
   function addActivity(event: ActivityEvent) {
     setActivity(prev => [event, ...prev]);
-    // Refresh balance after a withdrawal
     if (event.kind === 'withdraw' && address) {
       loadChainState(address).catch(() => {});
     }
