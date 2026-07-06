@@ -12,6 +12,11 @@ export const sageVaultAbi = parseAbi([
   'function previewWithdrawableGD(address user) view returns (uint256)'
 ]);
 
+const erc20Abi = parseAbi([
+  'function balanceOf(address account) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+]);
+
 export const publicClient = createPublicClient({
   chain: appChain,
   transport: http(appConfig.rpcUrl)
@@ -21,7 +26,6 @@ export async function connectInjectedWallet() {
   if (!window.ethereum) {
     throw new Error('No wallet found. Open Sage in MiniPay, GoodWallet, or a browser wallet.');
   }
-
   const walletClient = createWalletClient({
     chain: appChain,
     transport: custom(window.ethereum)
@@ -30,9 +34,26 @@ export async function connectInjectedWallet() {
   return { walletClient, address };
 }
 
+/// Read live G$ wallet balance for the connected address.
+export async function readGDollarBalance(
+  userAddress: `0x${string}`,
+  gDollarAddress: `0x${string}`
+): Promise<number> {
+  try {
+    const raw = await publicClient.readContract({
+      address: gDollarAddress,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [userAddress],
+    });
+    return Number(raw) / 1e18; // G$ is 18 decimals on Celo
+  } catch {
+    return 0;
+  }
+}
+
 export async function readPosition(address: `0x${string}`) {
   if (!appConfig.vaultAddress) return null;
-
   const [rawPos, withdrawableGD] = await Promise.all([
     publicClient.readContract({
       address: appConfig.vaultAddress,
@@ -47,29 +68,21 @@ export async function readPosition(address: `0x${string}`) {
       args: [address]
     })
   ]);
-
   const [principalDepositedGD, stableSupplied] = rawPos;
   const principalGD = Number(principalDepositedGD) / 1e18;
   const currentGD   = Number(withdrawableGD) / 1e18;
   const yieldGD     = Math.max(0, currentGD - principalGD);
-
-  return {
-    principalGD,
-    yieldGD,
-    stableSupplied: Number(stableSupplied) / 1e18
-  };
+  return { principalGD, yieldGD, stableSupplied: Number(stableSupplied) / 1e18 };
 }
 
 export async function readInstruction(address: `0x${string}`) {
   if (!appConfig.vaultAddress) return null;
-
   const [percentBps, goalLabel, active] = await publicClient.readContract({
     address: appConfig.vaultAddress,
     abi: sageVaultAbi,
     functionName: 'instructions',
     args: [address]
   });
-
   return { percentBps: Number(percentBps), goalLabel, active };
 }
 
@@ -80,31 +93,36 @@ export async function writeInstruction(
   goalLabel: string
 ) {
   if (!appConfig.vaultAddress) {
-    throw new Error('VITE_SAGE_VAULT_ADDRESS is not configured.');
+    throw new Error(
+      'Vault address is not configured. Please deploy the contract and set VITE_SAGE_VAULT_ADDRESS.'
+    );
   }
-
-  return walletClient.writeContract({
+  const hash = await walletClient.writeContract({
     account: address,
-    chain: appChain,          // ← always matches the deployed network
+    chain: appChain,
     address: appConfig.vaultAddress,
     abi: sageVaultAbi,
     functionName: 'setInstruction',
     args: [BigInt(percentBps), goalLabel]
   });
+  // Wait for the transaction to be confirmed
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
 }
 
 export async function writePause(walletClient: WalletClient, address: `0x${string}`) {
   if (!appConfig.vaultAddress) {
-    throw new Error('VITE_SAGE_VAULT_ADDRESS is not configured.');
+    throw new Error('Vault address is not configured.');
   }
-
-  return walletClient.writeContract({
+  const hash = await walletClient.writeContract({
     account: address,
     chain: appChain,
     address: appConfig.vaultAddress,
     abi: sageVaultAbi,
     functionName: 'pauseInstruction'
   });
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
 }
 
 export async function writeWithdraw(
@@ -114,10 +132,9 @@ export async function writeWithdraw(
   minGdOut: bigint
 ) {
   if (!appConfig.vaultAddress) {
-    throw new Error('VITE_SAGE_VAULT_ADDRESS is not configured.');
+    throw new Error('Vault address is not configured.');
   }
-
-  return walletClient.writeContract({
+  const hash = await walletClient.writeContract({
     account: address,
     chain: appChain,
     address: appConfig.vaultAddress,
@@ -125,6 +142,8 @@ export async function writeWithdraw(
     functionName: 'withdraw',
     args: [stableAmount, minGdOut]
   });
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
 }
 
 declare global {

@@ -1,8 +1,15 @@
 import { useState } from 'react';
 import { type WalletClient } from 'viem';
 import { Shell } from './components/Shell';
-import { connectInjectedWallet, readInstruction, readPosition, writeInstruction, writePause } from './contract';
-import { appConfig } from './config';
+import {
+  connectInjectedWallet,
+  readGDollarBalance,
+  readInstruction,
+  readPosition,
+  writeInstruction,
+  writePause,
+} from './contract';
+import { appChain, appConfig } from './config';
 import { defaultActivity, defaultInstruction, defaultMilestones, defaultPosition, MOCK_APY } from './mockData';
 import { AboutView } from './views/AboutView';
 import { DashboardView } from './views/DashboardView';
@@ -11,32 +18,60 @@ import type { ActivityEvent, Instruction, Milestone, Position } from './types';
 
 type View = 'setup' | 'dashboard' | 'about';
 
+// G$ token addresses per chain
+const G_DOLLAR_ADDRESS: Record<number, `0x${string}`> = {
+  42220:    '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A', // Celo mainnet
+  11142220: '0x084DA2de8Cfa7CF714b66c006eAC80791B396A88', // Celo Sepolia (mock deployed)
+};
+
 export function App() {
   const [view,         setView]         = useState<View>(() => localStorage.getItem('sage.setupComplete') ? 'dashboard' : 'setup');
   const [address,      setAddress]      = useState<`0x${string}`>();
   const [walletClient, setWalletClient] = useState<WalletClient>();
   const [instruction,  setInstruction]  = useState<Instruction>(defaultInstruction);
   const [position,     setPosition]     = useState<Position>(defaultPosition);
+  const [gdBalance,    setGdBalance]    = useState<number | null>(null);
   const [streak,       setStreak]       = useState(() => Number(localStorage.getItem('sage.streak') || 14));
   const [activity,     setActivity]     = useState<ActivityEvent[]>(defaultActivity);
   const [milestones,   setMilestones]   = useState<Milestone[]>(defaultMilestones);
   const [notice,       setNotice]       = useState('');
+  const [noticeType,   setNoticeType]   = useState<'info' | 'success' | 'error'>('info');
   const [saving,       setSaving]       = useState(false);
   const [pausing,      setPausing]      = useState(false);
   const apy = MOCK_APY;
 
+  function showNotice(msg: string, type: 'info' | 'success' | 'error' = 'info') {
+    setNotice(msg);
+    setNoticeType(type);
+  }
+
   async function loadChainState(addr: `0x${string}`) {
-    if (!appConfig.vaultAddress) return;
-    try {
-      const [onChainInstruction, onChainPosition] = await Promise.all([
-        readInstruction(addr),
-        readPosition(addr),
-      ]);
-      if (onChainInstruction) setInstruction({ ...onChainInstruction, goalTargetGD: instruction.goalTargetGD });
-      if (onChainPosition)    setPosition(onChainPosition);
-    } catch {
-      // Non-fatal — fall back to mock/local state
+    const gDollarAddr = G_DOLLAR_ADDRESS[appChain.id];
+    const loads: Promise<void>[] = [];
+
+    // Load G$ wallet balance
+    if (gDollarAddr) {
+      loads.push(
+        readGDollarBalance(addr, gDollarAddr).then(setGdBalance).catch(() => {})
+      );
     }
+
+    // Load vault state
+    if (appConfig.vaultAddress) {
+      loads.push(
+        Promise.all([
+          readInstruction(addr),
+          readPosition(addr),
+        ]).then(([onChainInstruction, onChainPosition]) => {
+          if (onChainInstruction) {
+            setInstruction(prev => ({ ...onChainInstruction, goalTargetGD: prev.goalTargetGD }));
+          }
+          if (onChainPosition) setPosition(onChainPosition);
+        }).catch(() => {})
+      );
+    }
+
+    await Promise.all(loads);
   }
 
   async function connect() {
@@ -44,11 +79,11 @@ export function App() {
       const connected = await connectInjectedWallet();
       setAddress(connected.address);
       setWalletClient(connected.walletClient);
-      setNotice('');
+      showNotice('');
       await loadChainState(connected.address);
       return connected;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Wallet connection failed.');
+      showNotice(error instanceof Error ? error.message : 'Wallet connection failed.', 'error');
       return undefined;
     }
   }
@@ -56,19 +91,41 @@ export function App() {
   async function saveInstruction(nextWalletClient = walletClient, nextAddress = address) {
     try {
       setSaving(true);
+      showNotice('Submitting transaction…', 'info');
+
       if (nextWalletClient && nextAddress) {
-        await writeInstruction(nextWalletClient, nextAddress, instruction.percentBps, instruction.goalLabel);
-        setNotice('Your savings rule is active.');
+        const hash = await writeInstruction(
+          nextWalletClient,
+          nextAddress,
+          instruction.percentBps,
+          instruction.goalLabel
+        );
+        // Transaction confirmed — show success with hash link
+        const explorerBase = appChain.blockExplorers?.default?.url ?? '';
+        const txUrl = explorerBase ? `${explorerBase}/tx/${hash}` : '';
+        showNotice(
+          txUrl
+            ? `✅ Savings rule is active! View transaction: ${txUrl}`
+            : `✅ Savings rule is active! Tx: ${hash}`,
+          'success'
+        );
+        // Refresh on-chain state
+        await loadChainState(nextAddress);
       } else {
-        setNotice(`Saved in preview: Sage will set aside ${instruction.percentBps / 100}% of each claim.`);
+        // Preview mode (no wallet connected yet)
+        showNotice(
+          `Preview: Sage will save ${instruction.percentBps / 100}% of each claim. Connect a wallet to activate.`,
+          'info'
+        );
       }
-      setInstruction({ ...instruction, active: instruction.percentBps > 0 });
+
+      setInstruction(prev => ({ ...prev, active: instruction.percentBps > 0 }));
       localStorage.setItem('sage.setupComplete', 'true');
-      window.setTimeout(() => setView('dashboard'), 420);
+      window.setTimeout(() => setView('dashboard'), 600);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not save instruction.');
+      showNotice(error instanceof Error ? error.message : 'Could not save instruction.', 'error');
     } finally {
-      window.setTimeout(() => setSaving(false), 420);
+      window.setTimeout(() => setSaving(false), 600);
     }
   }
 
@@ -85,34 +142,46 @@ export function App() {
     setPausing(true);
     try {
       if (instruction.active) {
-        // Pause
         if (walletClient && address) {
           await writePause(walletClient, address);
         }
-        setInstruction((prev) => ({ ...prev, active: false }));
-        setNotice('Saving paused. Your existing savings keep earning yield.');
+        setInstruction(prev => ({ ...prev, active: false }));
+        showNotice('✅ Saving paused. Your existing savings keep earning yield.', 'success');
       } else {
-        // Resume — re-write the instruction
         if (walletClient && address) {
           await writeInstruction(walletClient, address, instruction.percentBps, instruction.goalLabel);
         }
-        setInstruction((prev) => ({ ...prev, active: true }));
-        setNotice('Saving resumed. Sage is watching again.');
+        setInstruction(prev => ({ ...prev, active: true }));
+        showNotice('✅ Saving resumed. Sage is watching again.', 'success');
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not update savings status.');
+      showNotice(error instanceof Error ? error.message : 'Could not update savings status.', 'error');
     } finally {
       window.setTimeout(() => setPausing(false), 400);
     }
   }
 
   function addActivity(event: ActivityEvent) {
-    setActivity((prev) => [event, ...prev]);
+    setActivity(prev => [event, ...prev]);
+    // Refresh balance after a withdrawal
+    if (event.kind === 'withdraw' && address) {
+      loadChainState(address).catch(() => {});
+    }
   }
 
   return (
-    <Shell activeView={view} onViewChange={setView} connectedAddress={address} onConnect={connect}>
-      {notice && <div className="notice">{notice}</div>}
+    <Shell
+      activeView={view}
+      onViewChange={setView}
+      connectedAddress={address}
+      gdBalance={gdBalance}
+      onConnect={connect}
+    >
+      {notice && (
+        <div className={`notice notice-${noticeType}`}>
+          {notice}
+        </div>
+      )}
 
       {view === 'setup' && (
         <SetupView
@@ -129,6 +198,7 @@ export function App() {
         <DashboardView
           instruction={instruction}
           position={position}
+          gdBalance={gdBalance}
           streak={streak}
           apy={apy}
           activity={activity}

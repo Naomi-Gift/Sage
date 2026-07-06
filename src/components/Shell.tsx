@@ -5,42 +5,56 @@ type ShellProps = {
   activeView: string;
   onViewChange: (view: 'setup' | 'dashboard' | 'about') => void;
   connectedAddress?: string;
+  gdBalance?: number | null;
   onConnect: () => void;
   children: React.ReactNode;
 };
 
 const tabs = [
-  { view: 'setup' as const, label: 'Home', icon: Home },
-  { view: 'dashboard' as const, label: 'Grow', icon: TrendingUp },
-  { view: 'about' as const, label: 'About', icon: Info }
+  { view: 'setup'     as const, label: 'Home',  icon: Home },
+  { view: 'dashboard' as const, label: 'Grow',  icon: TrendingUp },
+  { view: 'about'     as const, label: 'About', icon: Info },
 ];
 
-export function Shell({ activeView, onViewChange, connectedAddress, onConnect, children }: ShellProps) {
+export function Shell({ activeView, onViewChange, connectedAddress, gdBalance, onConnect, children }: ShellProps) {
   const shortAddress = connectedAddress
-    ? `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}`
+    ? `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`
     : undefined;
+
+  const balanceLabel =
+    gdBalance !== null && gdBalance !== undefined
+      ? `G$ ${gdBalance < 0.01 ? '< 0.01' : gdBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+      : null;
 
   return (
     <div className="app-shell">
       <header className="app-header">
         <button className="brand-logo-btn" onClick={() => onViewChange('setup')} aria-label="Go to home">
-          <img
-            src="/assets/sage-logo.svg"
-            alt="Sage"
-            className="brand-logo"
-            width="88"
-            height="32"
-          />
+          <img src="/assets/sage-logo.svg" alt="Sage" className="brand-logo" width="88" height="32" />
         </button>
+
         <div className="header-actions">
-          <button className={shortAddress ? 'wallet-pill connected' : 'wallet-pill'} onClick={onConnect}>
+          {/* G$ balance chip — shown once wallet is connected */}
+          {shortAddress && balanceLabel && (
+            <span className="gd-balance-chip" title="Your G$ wallet balance">
+              <span className="gd-dot" />
+              {balanceLabel}
+            </span>
+          )}
+
+          <button
+            className={shortAddress ? 'wallet-pill connected' : 'wallet-pill'}
+            onClick={onConnect}
+          >
             {shortAddress && <span className="status-dot" />}
             {!shortAddress && <WalletCards size={16} />}
             {shortAddress || 'Connect'}
           </button>
         </div>
       </header>
+
       <main className="main">{children}</main>
+
       <nav className="tab-bar" aria-label="Primary">
         {tabs.map(({ view, label, icon: Icon }) => {
           const active = activeView === view;

@@ -24,6 +24,7 @@ import { CoachMarks } from '../components/onboarding/CoachMark';
 type DashboardViewProps = {
   instruction: Instruction;
   position: Position;
+  gdBalance: number | null;
   streak: number;
   apy: number;
   activity: ActivityEvent[];
@@ -65,7 +66,7 @@ function burstConfetti(particleCount: number, spread: number) {
 }
 
 export function DashboardView({
-  instruction, position, streak, apy,
+  instruction, position, gdBalance, streak, apy,
   activity, milestones, pausing,
   onStreakChange, onAdjust, onTogglePause, onAddActivity,
 }: DashboardViewProps) {
@@ -145,7 +146,15 @@ export function DashboardView({
 
       <h1>Hi there 👋</h1>
 
-      {/* ── Mascot card ── */}
+      {/* ── G$ wallet balance ── */}
+      {gdBalance !== null && gdBalance !== undefined && (
+        <div className="gd-wallet-banner">
+          <span className="gd-wallet-label">Your G$ balance</span>
+          <span className="gd-wallet-amount">
+            G$ {gdBalance < 0.01 ? '< 0.01' : gdBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          </span>
+        </div>
+      )}
       <div className="mascot-card">
         <span className="blob blob-purple" />
         <span className="blob blob-pink" />
