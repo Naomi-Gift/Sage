@@ -30,13 +30,15 @@ export function App() {
   const [milestones,  setMilestones]  = useState<Milestone[]>(defaultMilestones);
   const [notice,      setNotice]      = useState('');
   const [noticeType,  setNoticeType]  = useState<'info' | 'success' | 'error'>('info');
+  const [noticeTxUrl, setNoticeTxUrl] = useState<string | null>(null);
   const [saving,      setSaving]      = useState(false);
   const [pausing,     setPausing]     = useState(false);
   const apy = MOCK_APY;
 
-  function showNotice(msg: string, type: 'info' | 'success' | 'error' = 'info') {
+  function showNotice(msg: string, type: 'info' | 'success' | 'error' = 'info', txUrl?: string) {
     setNotice(msg);
     setNoticeType(type);
+    setNoticeTxUrl(txUrl ?? null);
   }
 
   async function loadChainState(addr: `0x${string}`) {
@@ -86,12 +88,7 @@ export function App() {
         );
         const explorerBase = appChain.blockExplorers?.default?.url ?? '';
         const txUrl = explorerBase ? `${explorerBase}/tx/${hash}` : '';
-        showNotice(
-          txUrl
-            ? `✅ Savings rule active! View tx: ${txUrl}`
-            : `✅ Savings rule is active! Tx: ${hash}`,
-          'success'
-        );
+        showNotice('✅ Savings rule is active!', 'success', txUrl || undefined);
         await loadChainState(nextAddress);
       } else {
         showNotice(
@@ -158,6 +155,16 @@ export function App() {
       {notice && (
         <div className={`notice notice-${noticeType}`}>
           {notice}
+          {noticeTxUrl && (
+            <a
+              href={noticeTxUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="notice-tx-link"
+            >
+              View transaction ↗
+            </a>
+          )}
         </div>
       )}
 
