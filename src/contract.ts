@@ -31,6 +31,37 @@ export async function connectInjectedWallet() {
     transport: custom(window.ethereum)
   });
   const [address] = await walletClient.requestAddresses();
+
+  // Auto-switch to the correct chain if wallet is on the wrong one
+  const currentChainId = await publicClient.getChainId();
+  if (currentChainId !== appChain.id) {
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${appChain.id.toString(16)}` }],
+      });
+    } catch (switchError: unknown) {
+      // Chain not added to wallet yet — add it then switch
+      const err = switchError as { code?: number };
+      if (err?.code === 4902) {
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: `0x${appChain.id.toString(16)}`,
+            chainName: appChain.name,
+            nativeCurrency: appChain.nativeCurrency,
+            rpcUrls: [appChain.rpcUrls.default.http[0]],
+            blockExplorerUrls: appChain.blockExplorers
+              ? [appChain.blockExplorers.default.url]
+              : [],
+          }],
+        });
+      } else {
+        throw new Error(`Please switch your wallet to ${appChain.name} and try again.`);
+      }
+    }
+  }
+
   return { walletClient, address };
 }
 
