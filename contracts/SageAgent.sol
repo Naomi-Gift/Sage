@@ -70,7 +70,7 @@ contract SageAgent {
 
     // ─── Views ────────────────────────────────────────────────────────────────
 
-    /// @notice Convenience getter — returns the hot-wallet address the vault
+    /// @notice Convenience getter  returns the hot-wallet address the vault
     /// should authorise as `agentExecutor`. Use this after deployment to
     /// confirm the vault and agent are in sync.
     function executorAddress() external view returns (address) {

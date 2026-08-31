@@ -58,7 +58,7 @@ contract MentoExchangeAdapter {
     /// @param minReturn  Minimum cUSD to receive (slippage guard).
     /// @return stableReceived Amount of cUSD returned to msg.sender (the vault).
     function sell(
-        address[] calldata, /* sellPath — ignored, route is fixed by exchangeId */
+        address[] calldata, /* sellPath  ignored, route is fixed by exchangeId */
         uint256 gdAmount,
         uint256 minReturn,
         address /* seller */
@@ -86,10 +86,10 @@ contract MentoExchangeAdapter {
     /// @param minReturn      Minimum G$ to receive (slippage guard).
     /// @return gdReceived    Amount of G$ returned to msg.sender (the vault).
     function buy(
-        address[] calldata, /* buyPath — ignored */
+        address[] calldata, /* buyPath  ignored */
         uint256 stableAmount,
         uint256 minReturn,
-        uint256               /* minTokenReturn — unused */
+        uint256               /* minTokenReturn  unused */
     ) external returns (uint256 gdReceived) {
         // Pull cUSD from the vault
         require(stable.transferFrom(msg.sender, address(this), stableAmount), "Adapter: stable pull failed");
@@ -117,7 +117,7 @@ contract MentoExchangeAdapter {
     }
 
     /// @notice Quote how much G$ you get for supplying `tokenAmount` of the stable.
-    /// @param token Must match this adapter's stable address — enforced for safety.
+    /// @param token Must match this adapter's stable address  enforced for safety.
     function buyReturn(address token, uint256 tokenAmount) external view returns (uint256) {
         require(token == address(stable), "Adapter: wrong token");
         return broker.getAmountOut(exchangeProvider, exchangeId, address(stable), address(gDollar), tokenAmount);
@@ -137,7 +137,7 @@ contract MentoExchangeAdapter {
         return (1e36) / stableFor1GD;
     }
 
-    /// @notice Reserve ratio — not tracked by Mento, returns 0.
+    /// @notice Reserve ratio  not tracked by Mento, returns 0.
     function reserveRatio(address) external pure returns (uint32) {
         return 0;
     }

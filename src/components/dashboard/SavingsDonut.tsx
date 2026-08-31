@@ -23,7 +23,7 @@ export function SavingsDonut({ amount, progress, loading = false }: SavingsDonut
     return (
       <div className="donut-wrap loading-donut">
         <div className="donut-center">
-          <strong className="saved-amount">G$ —</strong>
+          <strong className="saved-amount">G$ </strong>
           <span className="saved-caption">saved so far</span>
         </div>
       </div>

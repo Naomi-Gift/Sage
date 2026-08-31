@@ -26,41 +26,44 @@ export async function connectInjectedWallet() {
   if (!window.ethereum) {
     throw new Error('No wallet found. Open Sage in MiniPay, GoodWallet, or a browser wallet.');
   }
+
+  // Auto-switch to the correct chain if wallet is on the wrong one
+  try {
+    const chainIdHex = (await window.ethereum.request({ method: 'eth_chainId' })) as string;
+    const currentChainId = parseInt(chainIdHex, 16);
+    if (currentChainId !== appChain.id) {
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: `0x${appChain.id.toString(16)}` }],
+        });
+      } catch (switchError: unknown) {
+        const err = switchError as { code?: number };
+        if (err?.code === 4902) {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: `0x${appChain.id.toString(16)}`,
+              chainName: appChain.name,
+              nativeCurrency: appChain.nativeCurrency,
+              rpcUrls: [appChain.rpcUrls.default.http[0]],
+              blockExplorerUrls: appChain.blockExplorers
+                ? [appChain.blockExplorers.default.url]
+                : [],
+            }],
+          });
+        }
+      }
+    }
+  } catch {
+    // ignore switch error if user cancels or provider handles it
+  }
+
   const walletClient = createWalletClient({
     chain: appChain,
     transport: custom(window.ethereum)
   });
   const [address] = await walletClient.requestAddresses();
-
-  // Auto-switch to the correct chain if wallet is on the wrong one
-  const currentChainId = await publicClient.getChainId();
-  if (currentChainId !== appChain.id) {
-    try {
-      await window.ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: `0x${appChain.id.toString(16)}` }],
-      });
-    } catch (switchError: unknown) {
-      // Chain not added to wallet yet — add it then switch
-      const err = switchError as { code?: number };
-      if (err?.code === 4902) {
-        await window.ethereum.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: `0x${appChain.id.toString(16)}`,
-            chainName: appChain.name,
-            nativeCurrency: appChain.nativeCurrency,
-            rpcUrls: [appChain.rpcUrls.default.http[0]],
-            blockExplorerUrls: appChain.blockExplorers
-              ? [appChain.blockExplorers.default.url]
-              : [],
-          }],
-        });
-      } else {
-        throw new Error(`Please switch your wallet to ${appChain.name} and try again.`);
-      }
-    }
-  }
 
   return { walletClient, address };
 }
@@ -104,6 +107,26 @@ export async function readPosition(address: `0x${string}`) {
   const currentGD   = Number(withdrawableGD) / 1e18;
   const yieldGD     = Math.max(0, currentGD - principalGD);
   return { principalGD, yieldGD, stableSupplied: Number(stableSupplied) / 1e18 };
+}
+
+export async function quoteGdToUsdt(gdAmount: number): Promise<number> {
+  if (gdAmount <= 0) return 0;
+  try {
+    if (appConfig.vaultAddress) {
+      const gdUnits = BigInt(Math.floor(gdAmount * 1e18));
+      const [expectedStable] = await publicClient.readContract({
+        address: appConfig.vaultAddress,
+        abi: sageVaultAbi,
+        functionName: 'quoteSellGD',
+        args: [gdUnits],
+      });
+      return Number(expectedStable) / 1e18;
+    }
+  } catch {
+    // fallback to current reserve rate
+  }
+  // Standard GoodDollar reserve reference rate ~ 0.000125 USDT per G$
+  return gdAmount * 0.000125;
 }
 
 export async function readInstruction(address: `0x${string}`) {

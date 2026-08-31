@@ -34,8 +34,8 @@ function shareText(ctx: ShareContext): string {
   const amount = Math.round(ctx.savedAmountGD).toLocaleString();
   const goal   = ctx.goalLabel?.trim() ? ` toward my ${ctx.goalLabel.trim()}` : '';
   return (
-    `${ctx.streak} day streak 🔥 — G$ ${amount} saved & growing${goal}.\n\n` +
-    `My G$ earns ${ctx.apy}% APY automatically with Sage — no effort needed.\n\n` +
+    `${ctx.streak} day streak 🔥  G$ ${amount} saved & growing${goal}.\n\n` +
+    `My G$ earns ${ctx.apy}% APY automatically with Sage  no effort needed.\n\n` +
     `Try it free 👇`
   );
 }
@@ -105,7 +105,7 @@ export async function nativeShare(ctx: ShareContext, imageFile?: File): Promise<
     await navigator.share(shareData);
     return true;
   } catch {
-    // User cancelled or unsupported — not an error
+    // User cancelled or unsupported  not an error
     return false;
   }
 }

@@ -136,7 +136,7 @@ export function ShareModal({ open, imageDataUrl, ctx, imageFile, onClose }: Shar
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2200);
     } catch {
-      // Clipboard image API not supported — fall back to download
+      // Clipboard image API not supported  fall back to download
       downloadImage(imageDataUrl);
     }
   }
@@ -254,7 +254,7 @@ export function ShareModal({ open, imageDataUrl, ctx, imageFile, onClose }: Shar
             </div>
 
             <p className="share-ref-note">
-              Friends who join through your link start on Sage — and your streak counts as a shared milestone.
+              Friends who join through your link start on Sage  and your streak counts as a shared milestone.
             </p>
 
           </motion.div>

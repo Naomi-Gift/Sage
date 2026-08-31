@@ -86,7 +86,7 @@ contract DeployScript is Script {
         // 2. Agent registry
         agent = new SageAgent(agentEndpoint, agentMetadataURI, agentExecutor);
 
-        // 3. Vault — adapter fills both exchangeHelper and marketMaker slots
+        // 3. Vault  adapter fills both exchangeHelper and marketMaker slots
         vault = new SageVault(
             gDollar,
             targetStable,

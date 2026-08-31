@@ -10,7 +10,7 @@ type CoachStep = {
 
 const STEPS: CoachStep[] = [
   { key: 'tap-mascot',  emoji: '👆', message: 'Tap the mascot every day to check in and grow your streak.' },
-  { key: 'auto-saves',  emoji: '⚡', message: 'Sage saves automatically — no action needed on your end.' },
+  { key: 'auto-saves',  emoji: '⚡', message: 'Sage saves automatically  no action needed on your end.' },
   { key: 'withdraw',    emoji: '💸', message: 'Withdraw anytime. Your money stays yours, always in G$.' },
 ];
 

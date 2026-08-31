@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 /// @title IGoodMarketMaker
 /// @notice Minimal interface for the GoodDollar GoodMarketMaker (reserve pricing oracle).
-/// Only view/pure functions are included — Sage never writes to the market maker directly;
+/// Only view/pure functions are included  Sage never writes to the market maker directly;
 /// all buys and sells go through IGoodDollarExchangeHelper.
 interface IGoodMarketMaker {
     /// @notice Returns how much stable the reserve would pay for `gdAmount` G$ sold.

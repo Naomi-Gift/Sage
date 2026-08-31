@@ -1,6 +1,6 @@
 import { celo, celoAlfajores, type Chain } from 'viem/chains';
 
-// Celo Sepolia — current Celo testnet (replaces Alfajores)
+// Celo Sepolia  current Celo testnet (replaces Alfajores)
 const celoSepolia: Chain = {
   ...celoAlfajores,
   id: 11142220,
@@ -36,7 +36,7 @@ const rpcUrl =
   (appChain.id === 11142220 ? TESTNET_RPC : 'https://forno.celo.org');
 
 // vaultAddress: env var takes priority, then hardcoded testnet fallback
-// This ensures the app ALWAYS connects to the contract — never shows the
+// This ensures the app ALWAYS connects to the contract  never shows the
 // "not configured" error unless you're explicitly on a chain with no contract.
 const vaultAddress = (
   import.meta.env.VITE_SAGE_VAULT_ADDRESS || TESTNET_VAULT
@@ -45,8 +45,6 @@ const vaultAddress = (
 export const appConfig = {
   vaultAddress,
   rpcUrl,
-  // mockMode is only true if explicitly set to "true" — default is live mode
-  mockMode: import.meta.env.VITE_ENABLE_MOCK_DATA === 'true',
   // G$ token address for balance reading
   gDollarAddress: (
     import.meta.env.VITE_GDOLLAR_TOKEN || TESTNET_G_DOLLAR

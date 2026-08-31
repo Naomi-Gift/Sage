@@ -1259,7 +1259,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* ══════════════════════════════════════════════════════════
-   NEW FEATURES — Activity Feed, Yield Badge, Pause, etc.
+   NEW FEATURES  Activity Feed, Yield Badge, Pause, etc.
    ══════════════════════════════════════════════════════════ */
 
 /* ─── Donut + Yield Badge wrapper ───────────────────────── */
@@ -1622,7 +1622,7 @@ a { color: inherit; text-decoration: none; }
   box-shadow: var(--shadow-xs);
 }
 
-/* ─── How-it-works step — title + desc ──────────────────── */
+/* ─── How-it-works step  title + desc ──────────────────── */
 .how-it-works-step > div {
   display: flex;
   flex-direction: column;
@@ -1906,7 +1906,7 @@ a { color: inherit; text-decoration: none; }
 
 /* ─── Responsive overrides for new components ───────────── */
 @media (max-width: 640px) {
-  /* Hero: copy on top, demo below — DOM order already correct */
+  /* Hero: copy on top, demo below  DOM order already correct */
   .landing-copy { order: 0; }
   .hero-demo    { order: 1; }
 

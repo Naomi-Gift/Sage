@@ -14,7 +14,7 @@ export function PauseButton({ active, loading = false, onToggle }: PauseButtonPr
       onClick={onToggle}
       disabled={loading}
       aria-label={active ? 'Pause automatic saving' : 'Resume automatic saving'}
-      title={active ? 'Pause Sage — stops auto-saving new claims' : 'Resume Sage — restarts auto-saving'}
+      title={active ? 'Pause Sage  stops auto-saving new claims' : 'Resume Sage  restarts auto-saving'}
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.span

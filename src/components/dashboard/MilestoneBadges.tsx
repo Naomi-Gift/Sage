@@ -17,7 +17,7 @@ export function MilestoneBadges({ milestones }: MilestoneBadgesProps) {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.06, duration: 0.28 }}
-            title={m.reached ? `${m.label} — achieved!` : `${m.label} — keep going`}
+            title={m.reached ? `${m.label}  achieved!` : `${m.label}  keep going`}
           >
             <span className="milestone-icon">{m.reached ? m.icon : '🔒'}</span>
             <span className="milestone-label">{m.label}</span>

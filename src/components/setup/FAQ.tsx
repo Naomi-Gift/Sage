@@ -14,15 +14,15 @@ const ITEMS: FAQItem[] = [
   },
   {
     q: 'What happens if I stop claiming G$?',
-    a: "Nothing bad. Your saved G$ stays in Aave earning yield whether you claim or not. Sage only saves when a new claim comes in — if there's no claim, there's nothing to save. Your existing savings are always safe.",
+    a: "Nothing bad. Your saved G$ stays in Aave earning yield whether you claim or not. Sage only saves when a new claim comes in  if there's no claim, there's nothing to save. Your existing savings are always safe.",
   },
   {
     q: 'Is this safe? Who controls my money?',
-    a: "Sage is non-custodial — no one holds your funds. The SageVault smart contract on Celo holds your position, and only your wallet can withdraw. The underlying yield comes from Aave, one of the most battle-tested DeFi protocols with over $10B in TVL.",
+    a: "Sage is non-custodial  no one holds your funds. The SageVault smart contract on Celo holds your position, and only your wallet can withdraw. The underlying yield comes from Aave, one of the most battle-tested DeFi protocols with over $10B in TVL.",
   },
   {
     q: 'What fees does Sage charge?',
-    a: "Sage itself charges no fees. A standard 3% protocol fee applies when converting G$ through GoodDollar's exchange — the same fee used throughout the GoodDollar ecosystem. Aave's interest rates are already reflected in your yield.",
+    a: "Sage itself charges no fees. A standard 3% protocol fee applies when converting G$ through GoodDollar's exchange  the same fee used throughout the GoodDollar ecosystem. Aave's interest rates are already reflected in your yield.",
   },
   {
     q: 'Can I withdraw anytime?',

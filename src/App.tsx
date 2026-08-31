@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { type WalletClient } from 'viem';
 import { Shell } from './components/Shell';
 import {
@@ -10,30 +10,91 @@ import {
   writePause,
 } from './contract';
 import { appChain, appConfig } from './config';
-import { defaultActivity, defaultInstruction, defaultMilestones, defaultPosition, MOCK_APY } from './mockData';
-import { AboutView } from './views/AboutView';
 import { DashboardView } from './views/DashboardView';
 import { SetupView } from './views/SetupView';
-import type { ActivityEvent, Instruction, Milestone, Position } from './types';
+import {
+  type ActivityEvent,
+  type Instruction,
+  type Milestone,
+  type Position,
+  initialInstruction,
+  initialPosition,
+  PROTOCOL_APY,
+} from './types';
 
-type View = 'setup' | 'dashboard' | 'about';
+type View = 'setup' | 'dashboard';
 
 export function App() {
-  const [view,        setView]        = useState<View>(() => localStorage.getItem('sage.setupComplete') ? 'dashboard' : 'setup');
-  const [address,     setAddress]     = useState<`0x${string}`>();
-  const [walletClient,setWalletClient]= useState<WalletClient>();
-  const [instruction, setInstruction] = useState<Instruction>(defaultInstruction);
-  const [position,    setPosition]    = useState<Position>(defaultPosition);
-  const [gdBalance,   setGdBalance]   = useState<number | null>(null);
-  const [streak,      setStreak]      = useState(() => Number(localStorage.getItem('sage.streak') || 14));
-  const [activity,    setActivity]    = useState<ActivityEvent[]>(defaultActivity);
-  const [milestones,  setMilestones]  = useState<Milestone[]>(defaultMilestones);
-  const [notice,      setNotice]      = useState('');
-  const [noticeType,  setNoticeType]  = useState<'info' | 'success' | 'error'>('info');
+  const [view, setView] = useState<View>('setup');
+  const [address, setAddress] = useState<`0x${string}`>();
+  const [walletClient, setWalletClient] = useState<WalletClient>();
+  const [instruction, setInstruction] = useState<Instruction>(initialInstruction);
+  const [position, setPosition] = useState<Position>(initialPosition);
+  const [gdBalance, setGdBalance] = useState<number | null>(null);
+  const [streak, setStreak] = useState(() => Number(localStorage.getItem('sage.streak') || 0));
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [notice, setNotice] = useState('');
+  const [noticeType, setNoticeType] = useState<'info' | 'success' | 'error'>('info');
   const [noticeTxUrl, setNoticeTxUrl] = useState<string | null>(null);
-  const [saving,      setSaving]      = useState(false);
-  const [pausing,     setPausing]     = useState(false);
-  const apy = MOCK_APY;
+  const [saving, setSaving] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const apy = PROTOCOL_APY;
+
+  // Dynamic milestones derived from live on-chain position & check-in streak
+  const milestones = useMemo<Milestone[]>(() => {
+    const totalSaved = position.principalGD + position.yieldGD;
+    return [
+      { kind: '7d',    label: '7-day streak',    reached: streak >= 7,    icon: '⚡' },
+      { kind: '30d',   label: '30-day streak',   reached: streak >= 30,   icon: '🔥' },
+      { kind: '100d',  label: '100-day streak',  reached: streak >= 100,  icon: '💎' },
+      { kind: '500g',  label: '500 G$ saved',    reached: totalSaved >= 500,  icon: '🌿' },
+      { kind: '1000g', label: '1,000 G$ saved',  reached: totalSaved >= 1000, icon: '🌳' },
+      { kind: '2000g', label: '2,000 G$ saved',  reached: totalSaved >= 2000, icon: '🏆' },
+    ];
+  }, [streak, position]);
+
+  function navigateTo(nextView: View) {
+    if (nextView === 'dashboard') {
+      if (!address && !walletClient) {
+        // Strictly protect dashboard - unauthorized access redirects to landing
+        window.history.replaceState(null, '', '/');
+        setView('setup');
+        return;
+      }
+      if (window.location.pathname !== '/dashboard') {
+        window.history.pushState(null, '', '/dashboard');
+      }
+      setView('dashboard');
+    } else {
+      if (window.location.pathname !== '/') {
+        window.history.pushState(null, '', '/');
+      }
+      setView('setup');
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // Handle route protection on load & browser back/forward navigation
+  useEffect(() => {
+    function enforceRoute() {
+      const path = window.location.pathname;
+      if (path === '/dashboard') {
+        if (!address && !walletClient) {
+          // Strictly protect dashboard route if no active wallet is authenticated
+          window.history.replaceState(null, '', '/');
+          setView('setup');
+        } else {
+          setView('dashboard');
+        }
+      } else {
+        setView('setup');
+      }
+    }
+
+    enforceRoute();
+    window.addEventListener('popstate', enforceRoute);
+    return () => window.removeEventListener('popstate', enforceRoute);
+  }, [address, walletClient]);
 
   function showNotice(msg: string, type: 'info' | 'success' | 'error' = 'info', txUrl?: string) {
     setNotice(msg);
@@ -52,7 +113,7 @@ export function App() {
       Promise.all([readInstruction(addr), readPosition(addr)])
         .then(([onChainInstruction, onChainPosition]) => {
           if (onChainInstruction) {
-            setInstruction(prev => ({ ...onChainInstruction, goalTargetGD: prev.goalTargetGD }));
+            setInstruction((prev) => ({ ...onChainInstruction, goalTargetGD: prev.goalTargetGD }));
           }
           if (onChainPosition) setPosition(onChainPosition);
         })
@@ -67,11 +128,44 @@ export function App() {
       setWalletClient(connected.walletClient);
       showNotice('');
       await loadChainState(connected.address);
+      localStorage.setItem('sage.setupComplete', 'true');
+      localStorage.setItem('sage.userAddress', connected.address);
+      
+      // Navigate and unlock protected /dashboard route
+      if (window.location.pathname !== '/dashboard') {
+        window.history.pushState(null, '', '/dashboard');
+      }
+      setView('dashboard');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return connected;
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Wallet connection failed.', 'error');
       return undefined;
     }
+  }
+
+  function handleDisconnect() {
+    // 1. Reset connected wallet & on-chain state
+    setAddress(undefined);
+    setWalletClient(undefined);
+    setGdBalance(null);
+    setInstruction(initialInstruction);
+    setPosition(initialPosition);
+
+    // 2. Completely wipe local & session storage auth keys
+    localStorage.removeItem('sage.setupComplete');
+    localStorage.removeItem('sage.userAddress');
+    localStorage.removeItem('sage.walletConnected');
+    sessionStorage.clear();
+
+    // 3. Clear transient notices
+    setNotice('');
+    setNoticeTxUrl(null);
+
+    // 4. Force navigation to landing page and seal /dashboard
+    window.history.replaceState(null, '', '/');
+    setView('setup');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   async function saveInstruction(nextWalletClient = walletClient, nextAddress = address) {
@@ -97,9 +191,8 @@ export function App() {
         );
       }
 
-      setInstruction(prev => ({ ...prev, active: instruction.percentBps > 0 }));
+      setInstruction((prev) => ({ ...prev, active: instruction.percentBps > 0 }));
       localStorage.setItem('sage.setupComplete', 'true');
-      window.setTimeout(() => setView('dashboard'), 800);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Could not save instruction.', 'error');
     } finally {
@@ -107,27 +200,18 @@ export function App() {
     }
   }
 
-  async function continueSetup() {
-    if (address && walletClient) {
-      await saveInstruction(walletClient, address);
-      return;
-    }
-    const connected = await connect();
-    if (connected) await saveInstruction(connected.walletClient, connected.address);
-  }
-
   async function togglePause() {
     setPausing(true);
     try {
       if (instruction.active) {
         if (walletClient && address) await writePause(walletClient, address);
-        setInstruction(prev => ({ ...prev, active: false }));
+        setInstruction((prev) => ({ ...prev, active: false }));
         showNotice('✅ Saving paused. Your savings keep earning yield.', 'success');
       } else {
         if (walletClient && address) {
           await writeInstruction(walletClient, address, instruction.percentBps, instruction.goalLabel);
         }
-        setInstruction(prev => ({ ...prev, active: true }));
+        setInstruction((prev) => ({ ...prev, active: true }));
         showNotice('✅ Saving resumed. Sage is watching again.', 'success');
       }
     } catch (error) {
@@ -138,20 +222,14 @@ export function App() {
   }
 
   function addActivity(event: ActivityEvent) {
-    setActivity(prev => [event, ...prev]);
+    setActivity((prev) => [event, ...prev]);
     if (event.kind === 'withdraw' && address) {
       loadChainState(address).catch(() => {});
     }
   }
 
   return (
-    <Shell
-      activeView={view}
-      onViewChange={setView}
-      connectedAddress={address}
-      gdBalance={gdBalance}
-      onConnect={connect}
-    >
+    <Shell>
       {notice && (
         <div className={`notice notice-${noticeType}`}>
           {notice}
@@ -170,16 +248,14 @@ export function App() {
 
       {view === 'setup' && (
         <SetupView
-          instruction={instruction}
-          onInstructionChange={setInstruction}
-          onSave={continueSetup}
           onConnect={connect}
           connected={Boolean(address && walletClient)}
+          connectedAddress={address}
           saving={saving}
         />
       )}
 
-      {view === 'dashboard' && (
+      {view === 'dashboard' && address && (
         <DashboardView
           instruction={instruction}
           position={position}
@@ -187,16 +263,19 @@ export function App() {
           streak={streak}
           apy={apy}
           activity={activity}
-          milestones={milestones}
           pausing={pausing}
+          connectedAddress={address}
+          walletClient={walletClient}
+          saving={saving}
           onStreakChange={setStreak}
-          onAdjust={() => setView('setup')}
+          onNavigateHome={() => navigateTo('setup')}
           onTogglePause={togglePause}
           onAddActivity={addActivity}
+          onInstructionChange={setInstruction}
+          onSaveInstruction={() => saveInstruction(walletClient, address)}
+          onDisconnect={handleDisconnect}
         />
       )}
-
-      {view === 'about' && <AboutView />}
     </Shell>
   );
 }

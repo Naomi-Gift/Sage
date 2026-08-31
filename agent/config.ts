@@ -1,7 +1,7 @@
 import { Address, http } from 'viem';
 import { celo, celoAlfajores } from 'viem/chains';
 
-// Celo Sepolia — replaces Alfajores as the Celo testnet (chainId 11142220)
+// Celo Sepolia  replaces Alfajores as the Celo testnet (chainId 11142220)
 const celoSepolia = {
   ...celoAlfajores,
   id: 11142220,
