@@ -96,6 +96,16 @@ export function App() {
     return () => window.removeEventListener('popstate', enforceRoute);
   }, [address, walletClient]);
 
+  // Auto-dismiss all error, success, and info alerts after 3 seconds
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => {
+      setNotice('');
+      setNoticeTxUrl(null);
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   function showNotice(msg: string, type: 'info' | 'success' | 'error' = 'info', txUrl?: string) {
     setNotice(msg);
     setNoticeType(type);

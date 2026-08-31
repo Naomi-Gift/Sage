@@ -188,8 +188,15 @@ html.landing-mode .notice-error {
 .ln-section { padding-top: 4rem; padding-bottom: 4rem; }
 .ln-section-rule { border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 6rem; padding-bottom: 6rem; }
 .ln-final-wrap { padding-bottom: 8rem; }
+@media (max-width: 767px) {
+  .ln-section { padding-top: 3rem; padding-bottom: 3rem; }
+  .ln-section-rule { padding-top: 3.5rem; padding-bottom: 3.5rem; }
+}
 
 .ln-section-intro { text-align: center; margin-bottom: 4rem; position: relative; }
+@media (max-width: 767px) {
+  .ln-section-intro { margin-bottom: 2rem; }
+}
 .ln-section-intro h2,
 .ln-preview-intro h2,
 .ln-stories-head h2,
@@ -1467,6 +1474,12 @@ html.landing-mode .notice-error {
   gap: 1.25rem;
   max-width: 64rem;
   margin: 0 auto;
+  width: 100%;
+}
+@media (max-width: 767px) {
+  .ln-logos {
+    gap: 0.75rem;
+  }
 }
 @media (min-width: 640px) {
   .ln-logos {
@@ -1493,6 +1506,13 @@ html.landing-mode .notice-error {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
+@media (max-width: 767px) {
+  .ln-logo-tile {
+    height: 80px;
+    padding: 0.875rem 1rem;
+    border-radius: 1.125rem;
+  }
+}
 .ln-logo-tile:hover {
   background: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.12), rgba(20, 20, 26, 0.88) 75%);
   border: 0;
@@ -1511,6 +1531,12 @@ html.landing-mode .notice-error {
   object-fit: contain;
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (max-width: 767px) {
+  .ln-logo-img {
+    max-width: 100px;
+    max-height: 36px;
+  }
 }
 .ln-logo-tile:hover .ln-logo-img {
   transform: scale(1.08);
