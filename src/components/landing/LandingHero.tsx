@@ -5,8 +5,9 @@ import { SolarIcon } from './SolarIcon';
 type LandingHeroProps = {
   connected: boolean;
   saving: boolean;
-  onConnect: () => void;
-  onActivate: () => void;
+  onConnect?: () => void;
+  onActivate?: () => void;
+  onLaunchApp?: () => void;
 };
 
 const HERO_CARDS = [
@@ -22,7 +23,9 @@ function scrollToHow() {
   document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-export function LandingHero({ connected, saving, onConnect, onActivate }: LandingHeroProps) {
+export function LandingHero({ connected, saving, onConnect, onActivate, onLaunchApp }: LandingHeroProps) {
+  const handleAction = onLaunchApp || onActivate || onConnect;
+
   return (
     <section className="ln-hero ln-container" id="top">
       <div className="ln-hero-grid">
@@ -38,8 +41,8 @@ export function LandingHero({ connected, saving, onConnect, onActivate }: Landin
           </LandingIn>
 
           <LandingIn delay={0.2} className="ln-hero-ctas">
-            <HoverCta disabled={saving} onClick={connected ? onActivate : onConnect}>
-              {saving ? 'Saving…' : connected ? 'Activate Sage' : "Connect Wallet"}
+            <HoverCta disabled={saving} onClick={handleAction}>
+              {saving ? 'Saving…' : 'Launch App'}
             </HoverCta>
             <button type="button" className="ln-ghost-btn" onClick={scrollToHow}>
               See how it works

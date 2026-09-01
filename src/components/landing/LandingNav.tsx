@@ -6,8 +6,9 @@ type LandingNavProps = {
   connected: boolean;
   saving: boolean;
   shortAddress?: string;
-  onConnect: () => void;
-  onActivate: () => void;
+  onConnect?: () => void;
+  onActivate?: () => void;
+  onLaunchApp?: () => void;
 };
 
 function scrollTo(id: string) {
@@ -15,7 +16,7 @@ function scrollTo(id: string) {
 }
 
 export function LandingNav({
-  connected, saving, shortAddress, onConnect, onActivate,
+  connected, saving, shortAddress, onConnect, onActivate, onLaunchApp,
 }: LandingNavProps) {
   const [scrolled, setScrolled] = useState(false);
 
@@ -27,6 +28,8 @@ export function LandingNav({
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  const handleAction = onLaunchApp || onActivate || onConnect;
 
   return (
     <header className={`ln-nav${scrolled ? ' is-scrolled' : ''}`}>
@@ -50,9 +53,9 @@ export function LandingNav({
           <HoverCta
             size="nav"
             disabled={saving}
-            onClick={connected ? onActivate : onConnect}
+            onClick={handleAction}
           >
-            {saving ? 'Saving…' : connected ? 'Activate Sage' : "Connect Wallet"}
+            {saving ? 'Saving…' : 'Launch App'}
           </HoverCta>
         </div>
       </div>

@@ -43,13 +43,23 @@ graph TD
 
 ### Feature Implementation Status
 
-| Feature Area | Status | Verification | Details |
-| :--- | :---: | :---: | :--- |
+| Feature | Status | Notes |
+| :--- | :---: | :--- |
+| **Privy Identity & Wallet Migration** | ✅ Done | Privy provider, canonical wallet resolution, viem execution layer. |
+| **Real-Time Yield Ticker** | ✅ Done | Sub-second micro-yield compounding calculations with animated ticker. |
+| **Micro-Yield Streak Booster** | ✅ Done | Tiered APY based on streak milestones (Silver 4.4%, Gold 4.7%, Diamond 5.2%). |
+| **36-Hour Grace Window** | ✅ Done | Rolling 36h check-in window logic to protect daily streaks from breaking. |
+| **Dual-Currency Withdrawal** | ✅ Done | Choose between receiving G$ or USDT yield collateral via Mento swap. |
+| **Shareable Milestone Cards for X** | ✅ Done | Social milestone generator with 1-click Twitter / Farcaster intents. |
+| **Referral Program & Multi-Tier Bonus** | ✅ Done | Unique referral links (`?ref=0x...`) with Tier 1 (+5%) & Tier 2 (+2%) downlines. |
+| **Opt-In Top Savers Leaderboard** | ✅ Done | Top savers ranking modal with pseudonymous address privacy toggle. |
+| **Withdrawal-Proof Trust Feed** | ✅ Done | Celoscan verified transaction links on all recent activities. |
+| **Claim-Time Agent Nudge** | ⏸️ On Hold | Placed on hold per user request. |
+| **Decoupled Viem Execution** | ✅ Complete | Verified | Viem remains the blockchain execution and RPC layer. `WalletClient` is instantiated on-demand with active chain verification and signer security invariants. |
 | **Landing Page Experience** | ✅ Complete | Verified | Glassmorphic design, `UnicornBackground`, responsive hero, interactive product preview, fee comparison matrix, and story carousel. |
 | **Authentic Partner Stack** | ✅ Complete | Verified | Borderless logo grid (`GoodDollar`, `Aave`, `Celo`, `Mento`, `MiniPay`, `GoodWallet`, `cUSD`) with radial glass luminescence hover effect. |
 | **Strict Route Protection** | ✅ Complete | Verified | `/dashboard` is strictly guarded. Unauthenticated direct access redirects to `/`. Connecting wallet securely unlocks `/dashboard`. |
-| **Complete Auth Termination** | ✅ Complete | Verified | Disconnecting clears `localStorage`, `sessionStorage`, wallet state, on-chain balances, and redirects to landing page. |
-| **Clean Real-Data Initialization** | ✅ Complete | Verified | Removed all dummy activities and mock positions. Real zero-states, on-chain balances, live APY, and real dynamic milestones. |
+| **Clean Auth Termination** | ✅ Complete | Verified | Disconnecting terminates Privy session, resets transient on-chain state, and returns to landing page. |
 | **Celebratory Claim Modal** | ✅ Complete | Verified | Replaced native browser alerts with custom celebratory modal featuring confetti particle physics and streak multipliers. |
 | **Interactive Sidebar & Branding** | ✅ Complete | Verified | Collapsible rail with hover-swap animation between `sage_S_logo_Dark.png` and expand icon; expanded view renders `sageLogoDark.png`. |
 | **1-Tap Instant Withdrawal** | ✅ Complete | Verified | Converts Aave cUSD position back to G$ in one transaction with live USDT/G$ rate quoting. |

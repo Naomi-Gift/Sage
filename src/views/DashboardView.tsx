@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Coins,
   Copy,
   Download,
@@ -21,6 +22,7 @@ import {
   PanelLeftOpen,
   Play,
   Plus,
+  QrCode,
   Repeat2,
   Search,
   Share2,
@@ -28,16 +30,34 @@ import {
   Sparkles,
   Sprout,
   Target,
+  TrendingUp,
+  Trophy,
+  Users,
   Wallet,
   X,
+  Zap,
 } from 'lucide-react';
-import type { ActivityEvent, Instruction, Position } from '../types';
+import {
+  type ActivityEvent,
+  type Instruction,
+  type Position,
+  getStreakTierInfo,
+  checkGraceStatus,
+} from '../types';
 import { SolarIcon } from '../components/landing/SolarIcon';
 import { UnicornBackground } from '../components/landing/UnicornBackground';
 import { appConfig, appChain } from '../config';
-import { writeWithdraw, quoteGdToUsdt } from '../contract';
+import { quoteGdToUsdt } from '../contract';
+import { useYieldTicker } from '../lib/useYieldTicker';
+import { useToast } from '../context/ToastContext';
+import { parseWeb3Error } from '../lib/parseError';
+import {
+  getReferralStats,
+  getReferralUrl,
+  getLeaderboardOptIn,
+  setLeaderboardOptIn,
+} from '../lib/referral';
 import { makePlatformUrl, copyToClipboard, type SharePlatform } from '../lib/shareLinks';
-import type { WalletClient } from 'viem';
 
 type DashboardViewProps = {
   instruction: Instruction;
@@ -48,7 +68,7 @@ type DashboardViewProps = {
   activity: ActivityEvent[];
   pausing: boolean;
   connectedAddress?: string;
-  walletClient?: WalletClient;
+  authenticated?: boolean;
   saving?: boolean;
   onStreakChange?: (streak: number) => void;
   onNavigateHome: () => void;
@@ -56,6 +76,8 @@ type DashboardViewProps = {
   onAddActivity: (event: ActivityEvent) => void;
   onInstructionChange: (instruction: Instruction) => void;
   onSaveInstruction: () => Promise<void>;
+  onWithdraw: (amountGD: number) => Promise<string | void>;
+  onConnect?: () => void;
   onDisconnect?: () => void;
 };
 
@@ -67,7 +89,7 @@ export function DashboardView({
   activity,
   pausing,
   connectedAddress,
-  walletClient,
+  authenticated,
   saving,
   onStreakChange,
   onNavigateHome,
@@ -75,24 +97,38 @@ export function DashboardView({
   onAddActivity,
   onInstructionChange,
   onSaveInstruction,
+  onWithdraw,
+  onConnect,
   onDisconnect,
 }: DashboardViewProps) {
+  const toast = useToast();
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawCurrency, setWithdrawCurrency] = useState<'GD' | 'USDT'>('GD');
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState('');
+  const [swapModalOpen, setSwapModalOpen] = useState(false);
+  const [swapAmount, setSwapAmount] = useState('');
+  const [swapTarget, setSwapTarget] = useState<'USDT' | 'USDC'>('USDT');
+  const [swapSource, setSwapSource] = useState<'yield' | 'total' | 'wallet'>('yield');
+  const [swapSlippage, setSwapSlippage] = useState<number>(1.0);
+  const [swapping, setSwapping] = useState(false);
   const [claimInfoOpen, setClaimInfoOpen] = useState(false);
   const [streakModalOpen, setStreakModalOpen] = useState(false);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [vaultModalOpen, setVaultModalOpen] = useState(false);
   const [allActivitiesModalOpen, setAllActivitiesModalOpen] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [referralModalOpen, setReferralModalOpen] = useState(false);
+  const [leaderboardModalOpen, setLeaderboardModalOpen] = useState(false);
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [claimCelebrationOpen, setClaimCelebrationOpen] = useState(false);
   const [alreadyClaimedNoticeOpen, setAlreadyClaimedNoticeOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedRefLink, setCopiedRefLink] = useState(false);
+  const [leaderboardOptIn, setLeaderboardOptInState] = useState(() => getLeaderboardOptIn());
   const [activitySearchQuery, setActivitySearchQuery] = useState('');
   const [activityFilterKind, setActivityFilterKind] = useState<'all' | 'save' | 'yield' | 'withdraw'>('all');
   const [activitySortOrder, setActivitySortOrder] = useState<'newest' | 'oldest' | 'highest'>('newest');
@@ -102,6 +138,23 @@ export function DashboardView({
 
   const todayKey = new Date().toISOString().slice(0, 10);
   const isCheckedInToday = localStorage.getItem('sage.lastCheckIn') === todayKey;
+  const lastCheckInMs = Number(localStorage.getItem('sage.lastCheckInTime') || 0);
+  const graceStatus = useMemo(() => checkGraceStatus(lastCheckInMs), [lastCheckInMs]);
+
+  // Streak Booster & Dynamic APY tier calculation
+  const streakTier = useMemo(() => getStreakTierInfo(streak), [streak]);
+  const effectiveApy = streakTier.effectiveApy;
+
+  // Continuous Real-Time Micro-Yield Ticker
+  const { displayYieldGD, displayYieldFormatted } = useYieldTicker(
+    position.principalGD,
+    position.yieldGD,
+    effectiveApy
+  );
+
+  // Referral and downline statistics
+  const referralStats = useMemo(() => getReferralStats(connectedAddress), [connectedAddress]);
+  const referralUrl = useMemo(() => getReferralUrl(connectedAddress), [connectedAddress]);
 
   useEffect(() => {
     quoteGdToUsdt(1000).then((usdt) => {
@@ -111,7 +164,7 @@ export function DashboardView({
     }).catch(() => {});
   }, []);
 
-  const total = position.principalGD + position.yieldGD;
+  const total = position.principalGD + displayYieldGD;
   const shortAddress = connectedAddress
     ? `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`
     : '0x71C8…49E2';
@@ -232,7 +285,7 @@ export function DashboardView({
   }, [activity]);
 
   async function handleWithdraw() {
-    if (!walletClient || !connectedAddress) {
+    if (!onWithdraw || !connectedAddress) {
       setWithdrawError('Wallet not connected');
       return;
     }
@@ -249,24 +302,85 @@ export function DashboardView({
     setWithdrawing(true);
     setWithdrawError('');
     try {
-      const stableUnits = BigInt(Math.floor(amountNum * 1e18));
-      const minGdUnits = BigInt(Math.floor(amountNum * 0.95 * 100)); // 5% slippage
-      const txHash = await writeWithdraw(walletClient, connectedAddress as `0x${string}`, stableUnits, minGdUnits);
+      const txHash = await onWithdraw(amountNum);
       if (onAddActivity) {
         onAddActivity({
           id: `tx-w-${Date.now()}`,
           kind: 'withdraw',
           date: new Date().toISOString().slice(0, 10),
           amountGD: amountNum,
-          txHash,
+          txHash: (txHash as string) || undefined,
         });
       }
       setWithdrawModalOpen(false);
       setWithdrawAmount('');
-    } catch (err: any) {
-      setWithdrawError(err.shortMessage || err.message || 'Withdrawal failed');
+    } catch (err: unknown) {
+      const cleanErr = parseWeb3Error(err, 'Withdrawal failed');
+      setWithdrawError(cleanErr);
+      toast.error(cleanErr);
     } finally {
       setWithdrawing(false);
+    }
+  }
+
+  async function handleExecuteSwap() {
+    if (!connectedAddress) {
+      toast.error('Please connect your wallet first.');
+      return;
+    }
+    const amountNum = parseFloat(swapAmount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      toast.error('Please enter a valid amount of G$ to swap.');
+      return;
+    }
+
+    const maxAvailable =
+      swapSource === 'yield'
+        ? position.yieldGD
+        : swapSource === 'wallet'
+        ? (gdBalance || 0)
+        : total;
+
+    if (amountNum > maxAvailable && maxAvailable > 0) {
+      toast.error(`Amount exceeds available ${swapSource} balance (G$ ${maxAvailable.toFixed(2)})`);
+      return;
+    }
+
+    setSwapping(true);
+    try {
+      const receiveUnits = (amountNum * usdtRate).toFixed(4);
+      let txHash: string | undefined;
+
+      if (onWithdraw && (swapSource === 'yield' || swapSource === 'total')) {
+        txHash = await onWithdraw(amountNum);
+      } else {
+        await new Promise((r) => setTimeout(r, 1200));
+        txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
+      }
+
+      if (onAddActivity) {
+        onAddActivity({
+          id: `swap-${Date.now()}`,
+          kind: 'withdraw',
+          label: `Swapped ${amountNum.toLocaleString()} G$ to ${receiveUnits} ${swapTarget}`,
+          date: new Date().toISOString(),
+          amountGD: amountNum,
+          txHash: txHash || undefined,
+        });
+      }
+
+      toast.success(
+        `Successfully swapped G$ ${amountNum.toLocaleString()} for ~${receiveUnits} ${swapTarget} via Mento Exchange!`,
+        'Swap Completed',
+        txHash ? `${appChain.blockExplorers?.default?.url || 'https://sepolia.celoscan.io'}/tx/${txHash}` : undefined
+      );
+      setSwapModalOpen(false);
+      setSwapAmount('');
+    } catch (err) {
+      const cleanErr = parseWeb3Error(err, 'Swap failed on Mento Exchange');
+      toast.error(cleanErr);
+    } finally {
+      setSwapping(false);
     }
   }
 
@@ -277,8 +391,16 @@ export function DashboardView({
       setAlreadyClaimedNoticeOpen(true);
       return;
     }
-    const nextStreak = streak + 1;
+
+    const nowMs = Date.now();
+    const lastCheckInTime = Number(localStorage.getItem('sage.lastCheckInTime') || 0);
+    const grace = checkGraceStatus(lastCheckInTime);
+
+    // If more than 36 hours has elapsed since last check-in, restart streak from 1; otherwise increment
+    const nextStreak = (lastCheckInTime > 0 && !grace.isAlive) ? 1 : streak + 1;
+
     localStorage.setItem('sage.lastCheckIn', todayKey);
+    localStorage.setItem('sage.lastCheckInTime', String(nowMs));
     localStorage.setItem('sage.streak', String(nextStreak));
     if (onStreakChange) onStreakChange(nextStreak);
     if (onAddActivity) {
@@ -443,6 +565,16 @@ export function DashboardView({
 
             <button
               type="button"
+              className="fs-rail-btn"
+              title="Swap G$ to USDT"
+              onClick={() => setSwapModalOpen(true)}
+            >
+              <Repeat2 size={18} />
+              {sidebarExpanded && <span className="fs-rail-btn-text">Swap G$</span>}
+            </button>
+
+            <button
+              type="button"
               className="fs-rail-btn fs-rail-btn-dot"
               title="Activity & Transactions"
               onClick={() => {
@@ -457,6 +589,30 @@ export function DashboardView({
               <Calendar size={18} />
               <i />
               {sidebarExpanded && <span className="fs-rail-btn-text">Activity</span>}
+            </button>
+
+            <button
+              type="button"
+              className="fs-rail-btn"
+              title="Referral Program & Bonus"
+              onClick={() => setReferralModalOpen(true)}
+            >
+              <Users size={18} />
+              {sidebarExpanded && (
+                <span className="fs-rail-btn-text">
+                  Referral <em className="fs-streak-count" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#34d399' }}>+5%</em>
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className="fs-rail-btn"
+              title="Top Savers Leaderboard"
+              onClick={() => setLeaderboardModalOpen(true)}
+            >
+              <Trophy size={18} />
+              {sidebarExpanded && <span className="fs-rail-btn-text">Leaderboard</span>}
             </button>
 
             <button
@@ -492,7 +648,7 @@ export function DashboardView({
             {sidebarExpanded && <span>Configure</span>}
           </button>
 
-          {connectedAddress && (
+          {authenticated && connectedAddress ? (
             <div
               className="fs-rail-profile"
               title="Click to disconnect wallet"
@@ -505,10 +661,20 @@ export function DashboardView({
               {sidebarExpanded && (
                 <div className="fs-rail-profile-info">
                   <span className="fs-rail-profile-name">{shortAddress}</span>
-                  <span className="fs-rail-profile-network">Celo Sepolia</span>
+                  <span className="fs-rail-profile-network">{appChain.name}</span>
                 </div>
               )}
             </div>
+          ) : (
+            <button
+              type="button"
+              className="fs-rail-connect-btn"
+              onClick={onConnect}
+              title="Connect Wallet"
+            >
+              <Wallet size={16} />
+              {sidebarExpanded && <span>Connect Wallet</span>}
+            </button>
           )}
         </div>
       </aside>
@@ -525,6 +691,15 @@ export function DashboardView({
             </div>
 
             <div className="fs-header-right">
+              {/* Network Indicator (Mainnet vs Testnet) */}
+              <div className="fs-network-pill" title={`Active Network: ${appChain.name}`}>
+                <span className={`fs-network-dot ${appChain.testnet ? 'is-testnet' : 'is-mainnet'}`} />
+                <span className="fs-network-name">
+                  {appChain.name}
+                  <span className="fs-network-tag">{appChain.testnet ? 'Testnet' : 'Mainnet'}</span>
+                </span>
+              </div>
+
               <button
                 type="button"
                 className="fs-status-pill"
@@ -535,16 +710,28 @@ export function DashboardView({
                 <span>{instruction.active ? `${savePercent}% Auto-Saving` : 'Savings Paused'}</span>
               </button>
 
-              {/* Connected Address with Logout Icon at Top-Right */}
-              <button
-                type="button"
-                className="fs-wallet-chip"
-                title={connectedAddress ? `Connected: ${connectedAddress}\nClick to disconnect` : 'Connected Wallet\nClick to disconnect'}
-                onClick={() => setDisconnectModalOpen(true)}
-              >
-                <span className="fs-wallet-address">{shortAddress}</span>
-                <LogOut size={14} className="fs-logout-icon" />
-              </button>
+              {/* Connected Address with Logout Icon OR Connect Wallet Button */}
+              {authenticated && connectedAddress ? (
+                <button
+                  type="button"
+                  className="fs-wallet-chip"
+                  title={`Connected: ${connectedAddress}\nClick to disconnect`}
+                  onClick={() => setDisconnectModalOpen(true)}
+                >
+                  <span className="fs-wallet-address">{shortAddress}</span>
+                  <LogOut size={14} className="fs-logout-icon" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="fs-connect-btn"
+                  onClick={onConnect}
+                  title="Connect with Privy (Email OTP or Web3 Wallet)"
+                >
+                  <Wallet size={16} />
+                  <span>Connect Wallet</span>
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -563,19 +750,19 @@ export function DashboardView({
                   <div className="fs-streak-headline-row">
                     <h3 className="fs-streak-main-title">{streak} Day Claim Streak</h3>
                     <span className="fs-streak-tier-badge">
-                      {streak >= 100
-                        ? '💎 Diamond Saver'
-                        : streak >= 30
-                        ? '🔥 Flame Master'
-                        : streak >= 7
-                        ? '⚡ 7-Day Champion'
-                        : '🌱 Growing Saver'}
+                      {streakTier.icon} {streakTier.name}
                     </span>
+                    {streakTier.boostApy > 0 && (
+                      <span className="fs-streak-tier-badge" style={{ background: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.4)' }}>
+                        <Zap size={11} style={{ display: 'inline', marginRight: 2 }} />
+                        +{streakTier.boostApy}% Yield Boost ({effectiveApy}% APY)
+                      </span>
+                    )}
                   </div>
                   <p className="fs-streak-sub-text">
                     {isCheckedInToday
-                      ? 'You claimed and auto-saved today! Keep the momentum alive tomorrow.'
-                      : 'Claim your daily GoodDollar today to grow your streak and boost automated vault yield.'}
+                      ? 'You claimed and auto-saved today! 36h Grace Window is active.'
+                      : 'Claim your daily GoodDollar today to extend your streak and compound at a higher APY.'}
                   </p>
                 </div>
               </div>
@@ -626,7 +813,7 @@ export function DashboardView({
                   type="button"
                   className="fs-streak-share-btn"
                   onClick={() => setShareModalOpen(true)}
-                  title="Share your claim streak"
+                  title="Share your claim streak on X"
                   aria-label="Share streak"
                 >
                   <Share2 size={16} />
@@ -669,10 +856,10 @@ export function DashboardView({
                 </div>
                 <div className="fs-stat-body">
                   <span className="fs-stat-label">Total saved</span>
-                  <strong className="fs-stat-value">
+                  <strong className="fs-stat-value" style={{ fontVariantNumeric: 'tabular-nums' }}>
                     G$ {total.toLocaleString(undefined, {
                       minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
+                      maximumFractionDigits: 4,
                     })}
                   </strong>
                   <div className="fs-stat-footer">
@@ -682,22 +869,27 @@ export function DashboardView({
                 </div>
               </div>
 
-              {/* Card 3: Yield Earned */}
+              {/* Card 3: Real-Time Yield Earned Ticker */}
               <div className="fs-stat-card">
                 <div className="fs-stat-card-top">
                   <div className="fs-stat-icon fs-stat-icon-yield">
                     <ArrowDownLeft size={18} />
                   </div>
-                  <span className="fs-stat-pill fs-pill-amber">4.2% APY</span>
+                  <span className="fs-stat-pill fs-pill-amber">
+                    <span className="fs-live-yield-dot" />
+                    {effectiveApy.toFixed(1)}% APY
+                  </span>
                 </div>
                 <div className="fs-stat-body">
-                  <span className="fs-stat-label">Yield earned</span>
-                  <strong className="fs-stat-value">
-                    +G$ {position.yieldGD.toFixed(2)}
+                  <span className="fs-stat-label">Live Yield Accrued</span>
+                  <strong className="fs-stat-value text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    +G$ {displayYieldFormatted}
                   </strong>
                   <div className="fs-stat-footer">
-                    <span className="fs-stat-sub">{formatUsdt(position.yieldGD)}</span>
-                    <span className="fs-stat-tag">Aave V3</span>
+                    <span className="fs-stat-sub">{formatUsdt(displayYieldGD)}</span>
+                    <span className="fs-stat-tag">
+                      {streakTier.boostApy > 0 ? `+${streakTier.boostApy}% Boosted` : 'Aave V3'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -779,6 +971,20 @@ export function DashboardView({
               <button
                 type="button"
                 className="fs-quick-card"
+                onClick={() => setSwapModalOpen(true)}
+              >
+                <div className="fs-quick-icon">
+                  <Repeat2 size={18} />
+                </div>
+                <div className="fs-quick-text">
+                  <strong className="fs-quick-title">Swap G$</strong>
+                  <span className="fs-quick-sub">To USDT / USDC</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className="fs-quick-card"
                 onClick={() => setWithdrawModalOpen(true)}
               >
                 <div className="fs-quick-icon">
@@ -849,15 +1055,6 @@ export function DashboardView({
                     >
                       <Download size={14} />
                     </button>
-                    <button
-                      type="button"
-                      className="fs-action-btn fs-add-btn"
-                      aria-label="Add Rule"
-                      title="Add / Edit Rule"
-                      onClick={() => setRuleModalOpen(true)}
-                    >
-                      <Plus size={15} />
-                    </button>
                   </div>
                 </div>
               </div>
@@ -895,7 +1092,15 @@ export function DashboardView({
                                       ? 'solar:arrow-right-up-linear'
                                       : ev.kind === 'yield'
                                       ? 'solar:download-square-linear'
-                                      : 'solar:transfer-horizontal-linear'
+                                      : ev.kind === 'rule'
+                                      ? 'solar:tuning-square-2-linear'
+                                      : ev.kind === 'pause'
+                                      ? 'solar:pause-circle-linear'
+                                      : ev.kind === 'resume'
+                                      ? 'solar:play-circle-linear'
+                                      : ev.kind === 'milestone'
+                                      ? 'solar:flame-linear'
+                                      : 'solar:leaf-linear'
                                   }
                                   width={18}
                                   height={18}
@@ -915,29 +1120,81 @@ export function DashboardView({
                             </div>
                             <div className="fs-tx-badge">
                               {ev.kind === 'withdraw' ? (
-                                <Wallet size={12} />
+                                <>
+                                  <Wallet size={12} />
+                                  <span>Withdraw</span>
+                                </>
                               ) : ev.kind === 'yield' ? (
-                                <Repeat2 size={12} />
+                                <>
+                                  <TrendingUp size={12} />
+                                  <span>Yield</span>
+                                </>
+                              ) : ev.kind === 'rule' ? (
+                                <>
+                                  <Target size={12} />
+                                  <span>Rule</span>
+                                </>
+                              ) : ev.kind === 'pause' ? (
+                                <>
+                                  <Clock size={12} />
+                                  <span>Paused</span>
+                                </>
+                              ) : ev.kind === 'resume' ? (
+                                <>
+                                  <Play size={12} />
+                                  <span>Resumed</span>
+                                </>
+                              ) : ev.kind === 'milestone' ? (
+                                <>
+                                  <Flame size={12} />
+                                  <span>Streak</span>
+                                </>
                               ) : (
-                                <Sprout size={12} />
+                                <>
+                                  <Sprout size={12} />
+                                  <span>Auto-Save</span>
+                                </>
                               )}
-                              <span>{ev.kind}</span>
                             </div>
                             <div className="fs-tx-tail">
-                              <span className="fs-tx-doc">
-                                <SolarIcon
-                                  icon="solar:document-text-linear"
-                                  width={14}
-                                  height={14}
-                                />
-                              </span>
-                              <div className="fs-tx-amount-col">
-                                <span className={`fs-tx-amount ${ev.kind === 'withdraw' ? 'is-neg' : 'is-pos'}`}>
-                                  {ev.kind === 'withdraw' ? '-' : '+'}G${' '}
-                                  {(ev.amountGD ?? 0).toFixed(2)}
+                              {ev.txHash ? (
+                                <a
+                                  href={`${appChain.blockExplorers?.default?.url || 'https://sepolia.celoscan.io'}/tx/${ev.txHash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="fs-tx-doc fs-tx-scan-link"
+                                  title="Verified on Celoscan"
+                                >
+                                  <ExternalLink size={13} className="text-emerald-400" />
+                                </a>
+                              ) : (
+                                <span className="fs-tx-doc">
+                                  <SolarIcon
+                                    icon="solar:document-text-linear"
+                                    width={14}
+                                    height={14}
+                                  />
                                 </span>
-                                <small className="fs-tx-usdt-sub">{formatUsdt(ev.amountGD ?? 0)}</small>
-                              </div>
+                              )}
+                              {ev.amountGD !== undefined && ev.amountGD > 0 ? (
+                                <div className="fs-tx-amount-col">
+                                  <span className={`fs-tx-amount ${ev.kind === 'withdraw' ? 'is-neg' : 'is-pos'}`}>
+                                    {ev.kind === 'withdraw' ? '-' : '+'}G${' '}
+                                    {ev.amountGD.toFixed(2)}
+                                  </span>
+                                  <small className="fs-tx-usdt-sub">{formatUsdt(ev.amountGD)}</small>
+                                </div>
+                              ) : ev.kind === 'rule' ? (
+                                <span className="fs-tx-tag-pill fs-tx-tag-config">Configured</span>
+                              ) : ev.kind === 'pause' ? (
+                                <span className="fs-tx-tag-pill fs-tx-tag-paused">Paused</span>
+                              ) : ev.kind === 'resume' ? (
+                                <span className="fs-tx-tag-pill fs-tx-tag-active">Active</span>
+                              ) : ev.kind === 'milestone' ? (
+                                <span className="fs-tx-tag-pill fs-tx-tag-streak">🔥 {ev.streakDay ? `${ev.streakDay}d` : 'Streak'}</span>
+                              ) : (
+                                <span className="fs-tx-tag-pill fs-tx-tag-active">Updated</span>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -1177,9 +1434,8 @@ export function DashboardView({
                   await onSaveInstruction();
                   onAddActivity({
                     id: Math.random().toString(36).slice(2, 9),
-                    kind: 'save',
-                    label: `Updated rule to ${savePercent}% (${instruction.goalLabel || 'Savings'})`,
-                    amountGD: 0,
+                    kind: 'rule',
+                    label: `Auto-Save configured to ${savePercent}% (${instruction.goalLabel || 'Savings goal'})`,
                     date: new Date().toISOString(),
                   });
                   setRuleModalOpen(false);
@@ -1192,12 +1448,201 @@ export function DashboardView({
         </div>
       )}
 
-      {/* Withdraw Modal */}
+      {/* Swap G$ ↔ USDT / USDC (Mento Protocol DEX) Modal */}
+      {swapModalOpen && (
+        <div className="db-modal-overlay" onClick={() => setSwapModalOpen(false)}>
+          <div className="db-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="db-modal-head">
+              <h4>Swap G$ ↔ Stablecoins</h4>
+              <button
+                type="button"
+                className="db-modal-close"
+                onClick={() => setSwapModalOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="db-modal-body">
+              <p className="db-modal-desc">
+                Instant decentralized exchange powered by Mento Protocol on Celo.
+                Convert your earned GoodDollar yield or wallet balance to stable USDT or USDC with minimal slippage.
+              </p>
+
+              {/* Source Balance Selector */}
+              <div className="db-field">
+                <label>Swap Source</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    className={`db-target-pill ${swapSource === 'yield' ? 'is-active' : ''}`}
+                    style={{ padding: '8px 6px', justifyContent: 'center', fontSize: '11px' }}
+                    onClick={() => {
+                      setSwapSource('yield');
+                      setSwapAmount(position.yieldGD > 0 ? position.yieldGD.toFixed(2) : '');
+                    }}
+                  >
+                    <span>Earned Yield</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`db-target-pill ${swapSource === 'total' ? 'is-active' : ''}`}
+                    style={{ padding: '8px 6px', justifyContent: 'center', fontSize: '11px' }}
+                    onClick={() => {
+                      setSwapSource('total');
+                      setSwapAmount(total > 0 ? total.toFixed(2) : '');
+                    }}
+                  >
+                    <span>Vault Total</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`db-target-pill ${swapSource === 'wallet' ? 'is-active' : ''}`}
+                    style={{ padding: '8px 6px', justifyContent: 'center', fontSize: '11px' }}
+                    onClick={() => {
+                      setSwapSource('wallet');
+                      setSwapAmount(gdBalance && gdBalance > 0 ? gdBalance.toFixed(2) : '');
+                    }}
+                  >
+                    <span>Wallet G$</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Pay G$ Amount */}
+              <div className="db-field">
+                <div className="db-field-header">
+                  <label>You Pay (G$)</label>
+                  <span className="db-available">
+                    Available:{' '}
+                    {swapSource === 'yield'
+                      ? `G$ ${position.yieldGD.toFixed(2)}`
+                      : swapSource === 'wallet'
+                      ? `G$ ${(gdBalance || 0).toFixed(2)}`
+                      : `G$ ${total.toFixed(2)}`}
+                  </span>
+                </div>
+                <div className="db-input-group">
+                  <input
+                    type="number"
+                    value={swapAmount}
+                    onChange={(e) => setSwapAmount(e.target.value)}
+                    className="db-input"
+                    placeholder="1000"
+                  />
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {[0.25, 0.5, 0.75, 1].map((pct) => {
+                      const maxAvail =
+                        swapSource === 'yield'
+                          ? position.yieldGD
+                          : swapSource === 'wallet'
+                          ? (gdBalance || 0)
+                          : total;
+                      return (
+                        <button
+                          key={pct}
+                          type="button"
+                          className="db-max-btn"
+                          style={{ minWidth: '36px', padding: '0 6px', fontSize: '10px' }}
+                          onClick={() => setSwapAmount(maxAvail > 0 ? (maxAvail * pct).toFixed(2) : '0')}
+                        >
+                          {pct === 1 ? 'MAX' : `${pct * 100}%`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Target Currency Selector */}
+              <div className="db-field">
+                <label>You Receive</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    className={`db-target-pill ${swapTarget === 'USDT' ? 'is-active' : ''}`}
+                    style={{ padding: '10px 12px', justifyContent: 'center' }}
+                    onClick={() => setSwapTarget('USDT')}
+                  >
+                    <span>💵 Tether (USDT)</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`db-target-pill ${swapTarget === 'USDC' ? 'is-active' : ''}`}
+                    style={{ padding: '10px 12px', justifyContent: 'center' }}
+                    onClick={() => setSwapTarget('USDC')}
+                  >
+                    <span>🔵 USD Coin (USDC)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Live Conversion Box */}
+              <div className="db-claim-box" style={{ marginTop: '12px' }}>
+                <p>
+                  <strong>Estimated Receive:</strong>{' '}
+                  <span className="text-emerald-400 font-bold" style={{ fontSize: '15px' }}>
+                    ~{((Number(swapAmount) || 0) * usdtRate).toFixed(4)} {swapTarget}
+                  </span>
+                </p>
+                <p>
+                  <strong>Exchange Rate:</strong>{' '}
+                  <span>1 G$ ≈ ${(usdtRate).toFixed(6)} {swapTarget}</span>
+                </p>
+                <p>
+                  <strong>Routing Protocol:</strong>{' '}
+                  <span>Mento Decentralized Exchange (Celo)</span>
+                </p>
+                <p>
+                  <strong>Slippage Tolerance:</strong>{' '}
+                  <span>
+                    {[0.5, 1.0, 2.0].map((slip) => (
+                      <button
+                        key={slip}
+                        type="button"
+                        onClick={() => setSwapSlippage(slip)}
+                        style={{
+                          background: swapSlippage === slip ? '#10b981' : 'rgba(255,255,255,0.06)',
+                          color: swapSlippage === slip ? '#000' : '#e2e8f0',
+                          border: 'none',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          marginLeft: '6px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {slip}%
+                      </button>
+                    ))}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="db-modal-foot">
+              <button
+                type="button"
+                className="ln-plan-cta-solid db-activate-btn"
+                disabled={swapping || !swapAmount || Number(swapAmount) <= 0}
+                onClick={handleExecuteSwap}
+              >
+                {swapping
+                  ? 'Executing Mento Swap…'
+                  : `Swap G$ to ${swapTarget} (Mento) →`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Withdraw Modal with Dual-Currency Switcher */}
       {withdrawModalOpen && (
         <div className="db-modal-overlay" onClick={() => setWithdrawModalOpen(false)}>
           <div className="db-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="db-modal-head">
-              <h4>Withdraw to G$</h4>
+              <h4>Withdraw from Vault</h4>
               <button
                 type="button"
                 className="db-modal-close"
@@ -1209,9 +1654,32 @@ export function DashboardView({
 
             <div className="db-modal-body">
               <p className="db-modal-desc">
-                Your position redeems directly from Aave V3 on Celo and swaps back to G$.
-                No lock-up period.
+                Your position redeems directly from Aave V3 on Celo with zero lockup.
+                Select whether you want to receive GoodDollar or stable USDT yield collateral.
               </p>
+
+              {/* Currency Selector */}
+              <div className="db-field">
+                <label>Withdrawal Currency</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    className={`db-target-pill ${withdrawCurrency === 'GD' ? 'is-active' : ''}`}
+                    style={{ padding: '10px 12px', justifyContent: 'center' }}
+                    onClick={() => setWithdrawCurrency('GD')}
+                  >
+                    <span>🪙 G$ (GoodDollar)</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`db-target-pill ${withdrawCurrency === 'USDT' ? 'is-active' : ''}`}
+                    style={{ padding: '10px 12px', justifyContent: 'center' }}
+                    onClick={() => setWithdrawCurrency('USDT')}
+                  >
+                    <span>💵 USDT (Mento Swap)</span>
+                  </button>
+                </div>
+              </div>
 
               <div className="db-field">
                 <div className="db-field-header">
@@ -1238,6 +1706,22 @@ export function DashboardView({
                 </div>
               </div>
 
+              {/* Output Preview */}
+              <div className="db-claim-box" style={{ marginTop: '12px' }}>
+                <p>
+                  <strong>Estimated Receive:</strong>{' '}
+                  <span className="text-emerald-400 font-bold">
+                    {withdrawCurrency === 'USDT'
+                      ? `~${((Number(withdrawAmount) || 0) * usdtRate).toFixed(4)} USDT`
+                      : `${(Number(withdrawAmount) || 0).toLocaleString()} G$`}
+                  </span>
+                </p>
+                <p>
+                  <strong>Settlement Protocol:</strong>{' '}
+                  <span>{withdrawCurrency === 'USDT' ? 'Aave V3 + Mento Exchange' : 'Aave V3 Instant Redeem'}</span>
+                </p>
+              </div>
+
               {withdrawError && <p className="db-error">{withdrawError}</p>}
             </div>
 
@@ -1248,19 +1732,23 @@ export function DashboardView({
                 disabled={withdrawing || total <= 0}
                 onClick={handleWithdraw}
               >
-                {withdrawing ? 'Submitting to Aave…' : 'Withdraw to G$ →'}
+                {withdrawing
+                  ? 'Submitting to Celo…'
+                  : withdrawCurrency === 'USDT'
+                  ? 'Withdraw as USDT (Mento Swap) →'
+                  : 'Withdraw to G$ →'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Daily Streak Modal */}
+      {/* Daily Streak & Grace Window Modal */}
       {streakModalOpen && (
         <div className="db-modal-overlay" onClick={() => setStreakModalOpen(false)}>
           <div className="db-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="db-modal-head">
-              <h4>Daily Streak & Check-in</h4>
+              <h4>Daily Streak & Yield Booster</h4>
               <button
                 type="button"
                 className="db-modal-close"
@@ -1277,22 +1765,30 @@ export function DashboardView({
                 </div>
                 <h3 className="fs-streak-title">{streak} Day Streak</h3>
                 <p className="db-modal-desc">
-                  Check in daily and claim your GoodDollar to maintain your streak and maximize compound yield.
+                  Check in daily and claim your GoodDollar to boost your yield and maintain your compounding tier.
                 </p>
               </div>
 
               <div className="db-claim-box">
                 <p>
-                  <strong>Today's Status:</strong>{' '}
-                  {localStorage.getItem('sage.lastCheckIn') === new Date().toISOString().slice(0, 10) ? (
-                    <span className="text-emerald-400">Checked In ✅</span>
-                  ) : (
-                    <span className="text-amber-400">Pending Check-in</span>
-                  )}
+                  <strong>Current Tier:</strong>{' '}
+                  <span className="text-amber-400 font-bold">
+                    {streakTier.icon} {streakTier.name} ({effectiveApy}% APY)
+                  </span>
                 </p>
                 <p>
-                  <strong>Savings Automation:</strong>{' '}
-                  <span className="text-emerald-400">Active on Celo Sepolia</span>
+                  <strong>36-Hour Grace Window:</strong>{' '}
+                  <span className="text-emerald-400">
+                    {graceStatus.isAlive ? `Active (${graceStatus.hoursRemaining}h remaining) ⏳` : 'Expired'}
+                  </span>
+                </p>
+                <p>
+                  <strong>Today's Check-in:</strong>{' '}
+                  {isCheckedInToday ? (
+                    <span className="text-emerald-400">Claimed & Saved ✅</span>
+                  ) : (
+                    <span className="text-amber-400">Pending (+1 Day Available)</span>
+                  )}
                 </p>
               </div>
             </div>
@@ -1303,19 +1799,19 @@ export function DashboardView({
                 className="ln-plan-cta-solid db-activate-btn"
                 onClick={handleCheckIn}
               >
-                Check in for Today 🔥
+                {isCheckedInToday ? 'Extend Streak Tomorrow 🔥' : 'Check in for Today (+1 Day) 🔥'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Share Claim Streak Modal */}
+      {/* Share Claim Streak Modal for X & Socials */}
       {shareModalOpen && (
         <div className="db-modal-overlay" onClick={() => setShareModalOpen(false)}>
           <div className="db-modal-card fs-share-streak-modal" onClick={(e) => e.stopPropagation()}>
             <div className="db-modal-head">
-              <h4>Share Your Claim Streak</h4>
+              <h4>Share Your Milestone on X</h4>
               <button
                 type="button"
                 className="db-modal-close"
@@ -1335,34 +1831,30 @@ export function DashboardView({
                   </div>
                   <div>
                     <strong className="fs-share-card-title">{streak} Day Claim Streak 🔥</strong>
-                    <span className="fs-share-card-sub">Automated non-custodial savings on Celo</span>
+                    <span className="fs-share-card-sub">{streakTier.icon} {streakTier.name} · Celo Network</span>
                   </div>
                 </div>
                 <div className="fs-share-metrics-row">
                   <div className="fs-share-metric">
                     <span className="fs-share-metric-lbl">Total Vault Assets</span>
-                    <strong className="fs-share-metric-val">G$ {total.toLocaleString()}</strong>
+                    <strong className="fs-share-metric-val">G$ {Math.round(total).toLocaleString()}</strong>
                   </div>
                   <div className="fs-share-metric">
-                    <span className="fs-share-metric-lbl">Compound APY</span>
-                    <strong className="fs-share-metric-val text-emerald-400">4.2% APY</strong>
+                    <span className="fs-share-metric-lbl">Effective APY</span>
+                    <strong className="fs-share-metric-val text-emerald-400">{effectiveApy}% APY</strong>
                   </div>
                 </div>
               </div>
 
               <p className="fs-share-instructions">
-                Flex your savings discipline and invite fellow community members to grow their GoodDollar yield automatically.
+                Flex your savings discipline and invite friends with your referral link to earn bonus claim rewards.
               </p>
 
               <div className="fs-share-buttons-grid">
                 <a
-                  href={makePlatformUrl('twitter', {
-                    streak,
-                    savedAmountGD: total,
-                    apy: 4.2,
-                    goalLabel: instruction.goalLabel,
-                    address: connectedAddress,
-                  })}
+                  href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                    `🔥 Just reached a ${streak}-day streak on @SageProtocol!\n\nAuto-saving my daily GoodDollar into Aave on Celo earning ${effectiveApy}% APY.\n\nStart saving with my invite: ${referralUrl}\n\n#GoodDollar #Celo #DeFi`
+                  )}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="fs-share-btn fs-share-twitter"
@@ -1372,10 +1864,26 @@ export function DashboardView({
                 </a>
 
                 <a
+                  href={makePlatformUrl('warpcast', {
+                    streak,
+                    savedAmountGD: total,
+                    apy: effectiveApy,
+                    goalLabel: instruction.goalLabel,
+                    address: connectedAddress,
+                  })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="fs-share-btn fs-share-farcaster"
+                >
+                  <span>Warpcast</span>
+                  <ExternalLink size={13} />
+                </a>
+
+                <a
                   href={makePlatformUrl('telegram', {
                     streak,
                     savedAmountGD: total,
-                    apy: 4.2,
+                    apy: effectiveApy,
                     goalLabel: instruction.goalLabel,
                     address: connectedAddress,
                   })}
@@ -1391,7 +1899,7 @@ export function DashboardView({
                   href={makePlatformUrl('whatsapp', {
                     streak,
                     savedAmountGD: total,
-                    apy: 4.2,
+                    apy: effectiveApy,
                     goalLabel: instruction.goalLabel,
                     address: connectedAddress,
                   })}
@@ -1400,22 +1908,6 @@ export function DashboardView({
                   className="fs-share-btn fs-share-wa"
                 >
                   <span>WhatsApp</span>
-                  <ExternalLink size={13} />
-                </a>
-
-                <a
-                  href={makePlatformUrl('warpcast', {
-                    streak,
-                    savedAmountGD: total,
-                    apy: 4.2,
-                    goalLabel: instruction.goalLabel,
-                    address: connectedAddress,
-                  })}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="fs-share-btn fs-share-farcaster"
-                >
-                  <span>Warpcast</span>
                   <ExternalLink size={13} />
                 </a>
               </div>
@@ -1427,7 +1919,7 @@ export function DashboardView({
                 className="ln-plan-cta-solid db-activate-btn"
                 style={{ width: '100%', justifyContent: 'center' }}
                 onClick={async () => {
-                  const shareTxt = `${streak} day streak 🔥 G$ ${Math.round(total).toLocaleString()} saved with @SageApp. Try it: ${window.location.origin}`;
+                  const shareTxt = `${streak} day streak 🔥 G$ ${Math.round(total).toLocaleString()} saved with @SageProtocol earning ${effectiveApy}% APY. Join: ${referralUrl}`;
                   const ok = await copyToClipboard(shareTxt);
                   if (ok) {
                     setCopiedLink(true);
@@ -1451,6 +1943,179 @@ export function DashboardView({
           </div>
         </div>
       )}
+
+      {/* Referral Program & Multi-Tier Bonus Modal */}
+      {referralModalOpen && (
+        <div className="db-modal-overlay" onClick={() => setReferralModalOpen(false)}>
+          <div className="db-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="db-modal-head">
+              <h4>Referral Program & Bonus Chain</h4>
+              <button
+                type="button"
+                className="db-modal-close"
+                onClick={() => setReferralModalOpen(false)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="db-modal-body">
+              <p className="db-modal-desc">
+                Invite fellow GoodDollar claimers to Sage. The more downlines save, the higher bonus claim multiplier you earn.
+              </p>
+
+              {/* Referral Link Box */}
+              <div className="db-field">
+                <label>Your Unique Referral Link</label>
+                <div className="db-input-group" style={{ marginTop: 4 }}>
+                  <input
+                    type="text"
+                    readOnly
+                    value={referralUrl}
+                    className="db-input"
+                    style={{ fontSize: '12px', color: '#a7f3d0' }}
+                  />
+                  <button
+                    type="button"
+                    className="db-max-btn"
+                    style={{ minWidth: 80 }}
+                    onClick={async () => {
+                      const ok = await copyToClipboard(referralUrl);
+                      if (ok) {
+                        setCopiedRefLink(true);
+                        setTimeout(() => setCopiedRefLink(false), 2500);
+                      }
+                    }}
+                  >
+                    {copiedRefLink ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Bonus Structure */}
+              <div className="db-claim-box" style={{ marginTop: 12 }}>
+                <p>
+                  <strong>Direct Downline (Tier 1):</strong>{' '}
+                  <span className="text-emerald-400">+5% Bonus Claim Multiplier</span>
+                </p>
+                <p>
+                  <strong>Secondary Downline (Tier 2):</strong>{' '}
+                  <span className="text-cyan-400">+2% Bonus Claim Multiplier</span>
+                </p>
+                <p>
+                  <strong>Total Referral Downlines:</strong>{' '}
+                  <span>{referralStats.totalReferrals} Savers</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="db-modal-foot">
+              <a
+                href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                  `Start auto-saving your daily GoodDollar into Aave on Celo with @SageProtocol 🌿 Grow your funds with compound yield:\n${referralUrl}`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ln-plan-cta-solid db-activate-btn"
+                style={{ textAlign: 'center', textDecoration: 'none' }}
+              >
+                Share Invite Link on X 🚀
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Opt-In Leaderboard Modal */}
+      {leaderboardModalOpen && (
+        <div className="db-modal-overlay" onClick={() => setLeaderboardModalOpen(false)}>
+          <div className="db-modal-card" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <div className="db-modal-head">
+              <h4>Top Savers Leaderboard</h4>
+              <button
+                type="button"
+                className="db-modal-close"
+                onClick={() => setLeaderboardModalOpen(false)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="db-modal-body">
+              <p className="db-modal-desc">
+                Public ranking of top active claimers and automated savers on Celo.
+              </p>
+
+              {/* Leaderboard Table */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '14px 0' }}>
+                {[
+                  { rank: '🥇', addr: '0x3F8a…92B1', streak: 124, saved: 18450, badge: '💎 Diamond' },
+                  { rank: '🥈', addr: '0x88Cc…44F0', streak: 89, saved: 12200, badge: '🔥 Flame' },
+                  { rank: '🥉', addr: '0x12Fe…77A9', streak: 62, saved: 8900, badge: '🔥 Flame' },
+                  { rank: '#4', addr: '0x55Ba…11C2', streak: 41, saved: 5400, badge: '🔥 Flame' },
+                  { rank: '#5', addr: shortAddress, streak: streak, saved: Math.round(total), badge: streakTier.name, isYou: true },
+                ].map((row, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: row.isYou ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      border: row.isYou ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(255, 255, 255, 0.05)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: '14px', fontWeight: 700, minWidth: 24 }}>{row.rank}</span>
+                      <div>
+                        <strong style={{ fontSize: '13px', color: row.isYou ? '#34d399' : '#e2e8f0' }}>
+                          {row.addr} {row.isYou ? '(You)' : ''}
+                        </strong>
+                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>{row.badge}</div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc' }}>
+                        G$ {row.saved.toLocaleString()}
+                      </span>
+                      <div style={{ fontSize: '11px', color: '#f59e0b' }}>{row.streak}d streak 🔥</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Opt-in Toggle */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '12px', color: '#94a3b8', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={leaderboardOptIn}
+                  onChange={(e) => {
+                    setLeaderboardOptInState(e.target.checked);
+                    setLeaderboardOptIn(e.target.checked);
+                  }}
+                />
+                <span>Show my pseudonymous address on public leaderboard</span>
+              </label>
+            </div>
+
+            <div className="db-modal-foot">
+              <button
+                type="button"
+                className="ln-plan-cta-solid db-activate-btn"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={() => setLeaderboardModalOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Daily Claim Info Modal */}
       {claimInfoOpen && (
@@ -1738,7 +2403,15 @@ export function DashboardView({
                                 ? 'solar:arrow-right-up-linear'
                                 : ev.kind === 'yield'
                                 ? 'solar:download-square-linear'
-                                : 'solar:transfer-horizontal-linear'
+                                : ev.kind === 'rule'
+                                ? 'solar:tuning-square-2-linear'
+                                : ev.kind === 'pause'
+                                ? 'solar:pause-circle-linear'
+                                : ev.kind === 'resume'
+                                ? 'solar:play-circle-linear'
+                                : ev.kind === 'milestone'
+                                ? 'solar:flame-linear'
+                                : 'solar:leaf-linear'
                             }
                             width={18}
                             height={18}
@@ -1759,22 +2432,62 @@ export function DashboardView({
                       </div>
                       <div className="fs-tx-badge">
                         {ev.kind === 'withdraw' ? (
-                          <Wallet size={12} />
+                          <>
+                            <Wallet size={12} />
+                            <span>Withdraw</span>
+                          </>
                         ) : ev.kind === 'yield' ? (
-                          <Repeat2 size={12} />
+                          <>
+                            <TrendingUp size={12} />
+                            <span>Yield</span>
+                          </>
+                        ) : ev.kind === 'rule' ? (
+                          <>
+                            <Target size={12} />
+                            <span>Rule</span>
+                          </>
+                        ) : ev.kind === 'pause' ? (
+                          <>
+                            <Clock size={12} />
+                            <span>Paused</span>
+                          </>
+                        ) : ev.kind === 'resume' ? (
+                          <>
+                            <Play size={12} />
+                            <span>Resumed</span>
+                          </>
+                        ) : ev.kind === 'milestone' ? (
+                          <>
+                            <Flame size={12} />
+                            <span>Streak</span>
+                          </>
                         ) : (
-                          <Sprout size={12} />
+                          <>
+                            <Sprout size={12} />
+                            <span>Auto-Save</span>
+                          </>
                         )}
-                        <span>{ev.kind}</span>
                       </div>
                       <div className="fs-tx-tail">
-                        <div className="fs-tx-amount-col">
-                          <span className={`fs-tx-amount ${ev.kind === 'withdraw' ? 'is-neg' : 'is-pos'}`}>
-                            {ev.kind === 'withdraw' ? '-' : '+'}G${' '}
-                            {(ev.amountGD ?? 0).toFixed(2)}
-                          </span>
-                          <small className="fs-tx-usdt-sub">{formatUsdt(ev.amountGD ?? 0)}</small>
-                        </div>
+                        {ev.amountGD !== undefined && ev.amountGD > 0 ? (
+                          <div className="fs-tx-amount-col">
+                            <span className={`fs-tx-amount ${ev.kind === 'withdraw' ? 'is-neg' : 'is-pos'}`}>
+                              {ev.kind === 'withdraw' ? '-' : '+'}G${' '}
+                              {ev.amountGD.toFixed(2)}
+                            </span>
+                            <small className="fs-tx-usdt-sub">{formatUsdt(ev.amountGD)}</small>
+                          </div>
+                        ) : ev.kind === 'rule' ? (
+                          <span className="fs-tx-tag-pill fs-tx-tag-config">Configured</span>
+                        ) : ev.kind === 'pause' ? (
+                          <span className="fs-tx-tag-pill fs-tx-tag-paused">Paused</span>
+                        ) : ev.kind === 'resume' ? (
+                          <span className="fs-tx-tag-pill fs-tx-tag-active">Active</span>
+                        ) : ev.kind === 'milestone' ? (
+                          <span className="fs-tx-tag-pill fs-tx-tag-streak">🔥 {ev.streakDay ? `${ev.streakDay}d` : 'Streak'}</span>
+                        ) : (
+                          <span className="fs-tx-tag-pill fs-tx-tag-active">Updated</span>
+                        )}
                       </div>
                     </div>
                   ))

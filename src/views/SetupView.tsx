@@ -12,6 +12,7 @@ import { UnicornBackground } from '../components/landing/UnicornBackground';
 
 type SetupViewProps = {
   onConnect: () => void;
+  onLaunchApp: () => void;
   connected: boolean;
   connectedAddress?: string;
   saving: boolean;
@@ -19,6 +20,7 @@ type SetupViewProps = {
 
 export function SetupView({
   onConnect,
+  onLaunchApp,
   connected, connectedAddress, saving,
 }: SetupViewProps) {
   const shortAddress = connectedAddress
@@ -53,14 +55,16 @@ export function SetupView({
         saving={saving}
         shortAddress={shortAddress}
         onConnect={onConnect}
-        onActivate={onConnect}
+        onActivate={onLaunchApp}
+        onLaunchApp={onLaunchApp}
       />
 
       <LandingHero
         connected={connected}
         saving={saving}
         onConnect={onConnect}
-        onActivate={onConnect}
+        onActivate={onLaunchApp}
+        onLaunchApp={onLaunchApp}
       />
 
       <FeatureGrid />
@@ -72,7 +76,8 @@ export function SetupView({
         connected={connected}
         saving={saving}
         onConnect={onConnect}
-        onActivate={onConnect}
+        onActivate={onLaunchApp}
+        onLaunchApp={onLaunchApp}
       />
       <LandingFooter />
     </div>

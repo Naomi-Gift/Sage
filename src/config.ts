@@ -1,8 +1,8 @@
-import { celo, celoAlfajores, type Chain } from 'viem/chains';
+import { defineChain, type Chain } from 'viem';
+import { celo } from 'viem/chains';
 
-// Celo Sepolia  current Celo testnet (replaces Alfajores)
-const celoSepolia: Chain = {
-  ...celoAlfajores,
+// Celo Sepolia — current Celo testnet (replaces Alfajores)
+export const celoSepolia = defineChain({
   id: 11142220,
   name: 'Celo Sepolia',
   nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
@@ -14,7 +14,9 @@ const celoSepolia: Chain = {
     default: { name: 'Celoscan', url: 'https://sepolia.celoscan.io' },
   },
   testnet: true,
-};
+});
+
+export const supportedChains = [celoSepolia, celo] as const;
 
 // ── Hardcoded fallback addresses (used when env vars are not set) ─────────────
 // These are the deployed Celo Sepolia testnet contracts.
@@ -31,9 +33,17 @@ function resolveChain(): Chain {
 
 export const appChain = resolveChain();
 
+const defaultTestnetRpc = 'https://forno.celo-sepolia.celo-testnet.org';
+const defaultMainnetRpc = 'https://forno.celo.org';
+
 const rpcUrl =
-  import.meta.env.VITE_CELO_RPC_URL ||
-  (appChain.id === 11142220 ? TESTNET_RPC : 'https://forno.celo.org');
+  import.meta.env.VITE_CELO_RPC_URL &&
+  (appChain.id === 11142220
+    ? !import.meta.env.VITE_CELO_RPC_URL.includes('forno.celo.org') || import.meta.env.VITE_CELO_RPC_URL.includes('sepolia')
+      ? import.meta.env.VITE_CELO_RPC_URL
+      : defaultTestnetRpc
+    : import.meta.env.VITE_CELO_RPC_URL) ||
+  (appChain.id === 11142220 ? defaultTestnetRpc : defaultMainnetRpc);
 
 // vaultAddress: env var takes priority, then hardcoded testnet fallback
 // This ensures the app ALWAYS connects to the contract  never shows the

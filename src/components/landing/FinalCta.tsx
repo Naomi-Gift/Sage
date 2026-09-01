@@ -3,11 +3,14 @@ import { LandingIn } from './LandingIn';
 type FinalCtaProps = {
   connected: boolean;
   saving: boolean;
-  onConnect: () => void;
-  onActivate: () => void;
+  onConnect?: () => void;
+  onActivate?: () => void;
+  onLaunchApp?: () => void;
 };
 
-export function FinalCta({ connected, saving, onConnect, onActivate }: FinalCtaProps) {
+export function FinalCta({ connected, saving, onConnect, onActivate, onLaunchApp }: FinalCtaProps) {
+  const handleAction = onLaunchApp || onActivate || onConnect;
+
   return (
     <section className="ln-section ln-container ln-section-rule ln-final-wrap">
       <LandingIn delay={0.1} className="ln-final">
@@ -18,9 +21,9 @@ export function FinalCta({ connected, saving, onConnect, onActivate }: FinalCtaP
             type="button"
             className="ln-plan-cta-solid ln-final-primary"
             disabled={saving}
-            onClick={connected ? onActivate : onConnect}
+            onClick={handleAction}
           >
-            {saving ? 'Saving…' : connected ? 'Activate Sage' : "Connect Wallet"}
+            {saving ? 'Saving…' : 'Launch App'}
           </button>
           <button
             type="button"

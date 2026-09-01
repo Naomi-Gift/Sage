@@ -1,17 +1,19 @@
-import { useEffect, useState, useMemo } from 'react';
-import { type WalletClient } from 'viem';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Shell } from './components/Shell';
+import { useSageIdentity } from './auth/useSageIdentity';
+import { useToast } from './context/ToastContext';
 import {
-  connectInjectedWallet,
   readGDollarBalance,
   readInstruction,
   readPosition,
   writeInstruction,
   writePause,
+  writeWithdraw,
 } from './contract';
 import { appChain, appConfig } from './config';
 import { DashboardView } from './views/DashboardView';
 import { SetupView } from './views/SetupView';
+import { captureInboundReferral } from './lib/referral';
 import {
   type ActivityEvent,
   type Instruction,
@@ -26,16 +28,14 @@ type View = 'setup' | 'dashboard';
 
 export function App() {
   const [view, setView] = useState<View>('setup');
-  const [address, setAddress] = useState<`0x${string}`>();
-  const [walletClient, setWalletClient] = useState<WalletClient>();
+  const { ready, authenticated, address, login, logout, getWalletClient } = useSageIdentity();
+  const toast = useToast();
+
   const [instruction, setInstruction] = useState<Instruction>(initialInstruction);
   const [position, setPosition] = useState<Position>(initialPosition);
   const [gdBalance, setGdBalance] = useState<number | null>(null);
   const [streak, setStreak] = useState(() => Number(localStorage.getItem('sage.streak') || 0));
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
-  const [notice, setNotice] = useState('');
-  const [noticeType, setNoticeType] = useState<'info' | 'success' | 'error'>('info');
-  const [noticeTxUrl, setNoticeTxUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [pausing, setPausing] = useState(false);
   const apy = PROTOCOL_APY;
@@ -55,12 +55,6 @@ export function App() {
 
   function navigateTo(nextView: View) {
     if (nextView === 'dashboard') {
-      if (!address && !walletClient) {
-        // Strictly protect dashboard - unauthorized access redirects to landing
-        window.history.replaceState(null, '', '/');
-        setView('setup');
-        return;
-      }
       if (window.location.pathname !== '/dashboard') {
         window.history.pushState(null, '', '/dashboard');
       }
@@ -74,45 +68,24 @@ export function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  // Handle route protection on load & browser back/forward navigation
+  // Handle route changes on load & browser back/forward navigation
   useEffect(() => {
     function enforceRoute() {
       const path = window.location.pathname;
       if (path === '/dashboard') {
-        if (!address && !walletClient) {
-          // Strictly protect dashboard route if no active wallet is authenticated
-          window.history.replaceState(null, '', '/');
-          setView('setup');
-        } else {
-          setView('dashboard');
-        }
+        setView('dashboard');
       } else {
         setView('setup');
       }
     }
 
     enforceRoute();
+    captureInboundReferral();
     window.addEventListener('popstate', enforceRoute);
     return () => window.removeEventListener('popstate', enforceRoute);
-  }, [address, walletClient]);
+  }, []);
 
-  // Auto-dismiss all error, success, and info alerts after 3 seconds
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => {
-      setNotice('');
-      setNoticeTxUrl(null);
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
-
-  function showNotice(msg: string, type: 'info' | 'success' | 'error' = 'info', txUrl?: string) {
-    setNotice(msg);
-    setNoticeType(type);
-    setNoticeTxUrl(txUrl ?? null);
-  }
-
-  async function loadChainState(addr: `0x${string}`) {
+  const loadChainState = useCallback(async (addr: `0x${string}`) => {
     await Promise.all([
       // G$ wallet balance
       readGDollarBalance(addr, appConfig.gDollarAddress)
@@ -129,106 +102,112 @@ export function App() {
         })
         .catch(() => {}),
     ]);
-  }
+  }, []);
 
-  async function connect() {
-    try {
-      const connected = await connectInjectedWallet();
-      setAddress(connected.address);
-      setWalletClient(connected.walletClient);
-      showNotice('');
-      await loadChainState(connected.address);
-      localStorage.setItem('sage.setupComplete', 'true');
-      localStorage.setItem('sage.userAddress', connected.address);
-      
-      // Navigate and unlock protected /dashboard route
-      if (window.location.pathname !== '/dashboard') {
-        window.history.pushState(null, '', '/dashboard');
-      }
-      setView('dashboard');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return connected;
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Wallet connection failed.', 'error');
-      return undefined;
+  // Hydrate blockchain state whenever authenticated canonical address is available
+  useEffect(() => {
+    if (authenticated && address) {
+      loadChainState(address);
     }
-  }
+  }, [authenticated, address, loadChainState]);
 
-  function handleDisconnect() {
-    // 1. Reset connected wallet & on-chain state
-    setAddress(undefined);
-    setWalletClient(undefined);
+  // Disconnect / logout handler
+  async function handleDisconnect() {
+    try {
+      await logout();
+    } catch {
+      // ignore logout errors
+    }
+
+    // Reset transient Sage on-chain state
     setGdBalance(null);
     setInstruction(initialInstruction);
     setPosition(initialPosition);
 
-    // 2. Completely wipe local & session storage auth keys
-    localStorage.removeItem('sage.setupComplete');
-    localStorage.removeItem('sage.userAddress');
-    localStorage.removeItem('sage.walletConnected');
-    sessionStorage.clear();
-
-    // 3. Clear transient notices
-    setNotice('');
-    setNoticeTxUrl(null);
-
-    // 4. Force navigation to landing page and seal /dashboard
+    // Force navigation to landing page
     window.history.replaceState(null, '', '/');
     setView('setup');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    toast.info('Disconnected wallet.');
   }
 
-  async function saveInstruction(nextWalletClient = walletClient, nextAddress = address) {
+  // Save / update savings instruction
+  async function saveInstruction() {
+    if (!authenticated || !address) {
+      toast.error('Please log in with Privy first.');
+      return;
+    }
+
     try {
       setSaving(true);
-      showNotice('Submitting transaction…', 'info');
+      toast.info('Submitting transaction to Celo Sepolia…');
 
-      if (nextWalletClient && nextAddress) {
-        const hash = await writeInstruction(
-          nextWalletClient,
-          nextAddress,
-          instruction.percentBps,
-          instruction.goalLabel
-        );
-        const explorerBase = appChain.blockExplorers?.default?.url ?? '';
-        const txUrl = explorerBase ? `${explorerBase}/tx/${hash}` : '';
-        showNotice('✅ Savings rule is active!', 'success', txUrl || undefined);
-        await loadChainState(nextAddress);
-      } else {
-        showNotice(
-          `Preview: Sage will save ${instruction.percentBps / 100}% of each claim. Connect a wallet to activate on-chain.`,
-          'info'
-        );
-      }
+      const walletClient = await getWalletClient();
+      const hash = await writeInstruction(
+        walletClient,
+        address,
+        instruction.percentBps,
+        instruction.goalLabel
+      );
+
+      const explorerBase = appChain.blockExplorers?.default?.url ?? '';
+      const txUrl = explorerBase ? `${explorerBase}/tx/${hash}` : '';
+      toast.success('Savings rule is active on Celo!', 'Rule Updated', txUrl || undefined);
+      await loadChainState(address);
 
       setInstruction((prev) => ({ ...prev, active: instruction.percentBps > 0 }));
-      localStorage.setItem('sage.setupComplete', 'true');
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Could not save instruction.', 'error');
+      toast.error(error);
     } finally {
       window.setTimeout(() => setSaving(false), 800);
     }
   }
 
+  // Pause / unpause savings
   async function togglePause() {
+    if (!authenticated || !address) {
+      toast.error('Please log in with Privy first.');
+      return;
+    }
+
     setPausing(true);
     try {
+      const walletClient = await getWalletClient();
       if (instruction.active) {
-        if (walletClient && address) await writePause(walletClient, address);
+        await writePause(walletClient, address);
         setInstruction((prev) => ({ ...prev, active: false }));
-        showNotice('✅ Saving paused. Your savings keep earning yield.', 'success');
+        toast.success('Saving paused. Your funds continue earning yield in Aave.');
       } else {
-        if (walletClient && address) {
-          await writeInstruction(walletClient, address, instruction.percentBps, instruction.goalLabel);
-        }
+        await writeInstruction(walletClient, address, instruction.percentBps, instruction.goalLabel);
         setInstruction((prev) => ({ ...prev, active: true }));
-        showNotice('✅ Saving resumed. Sage is watching again.', 'success');
+        toast.success('Saving resumed. Sage agent is active.');
       }
+      await loadChainState(address);
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Could not update savings status.', 'error');
+      toast.error(error);
     } finally {
       window.setTimeout(() => setPausing(false), 400);
     }
+  }
+
+  // Withdraw callback passed to DashboardView
+  async function handleWithdraw(amountGD: number): Promise<string> {
+    if (!authenticated || !address) {
+      throw new Error('Please log in with Privy first.');
+    }
+
+    toast.info('Submitting withdrawal transaction…');
+    const walletClient = await getWalletClient();
+    const stableUnits = BigInt(Math.floor(amountGD * 1e18));
+    const minGdUnits = BigInt(Math.floor(amountGD * 0.95 * 100)); // 5% slippage
+
+    const hash = await writeWithdraw(walletClient, address, stableUnits, minGdUnits);
+    const explorerBase = appChain.blockExplorers?.default?.url ?? '';
+    const txUrl = explorerBase ? `${explorerBase}/tx/${hash}` : '';
+    toast.success(`Successfully withdrew G$ ${amountGD.toLocaleString()}!`, 'Withdrawal Complete', txUrl || undefined);
+
+    await loadChainState(address);
+    return hash;
   }
 
   function addActivity(event: ActivityEvent) {
@@ -240,32 +219,17 @@ export function App() {
 
   return (
     <Shell>
-      {notice && (
-        <div className={`notice notice-${noticeType}`}>
-          {notice}
-          {noticeTxUrl && (
-            <a
-              href={noticeTxUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="notice-tx-link"
-            >
-              View transaction ↗
-            </a>
-          )}
-        </div>
-      )}
-
       {view === 'setup' && (
         <SetupView
-          onConnect={connect}
-          connected={Boolean(address && walletClient)}
+          onConnect={login}
+          onLaunchApp={() => navigateTo('dashboard')}
+          connected={Boolean(authenticated && address)}
           connectedAddress={address}
           saving={saving}
         />
       )}
 
-      {view === 'dashboard' && address && (
+      {view === 'dashboard' && (
         <DashboardView
           instruction={instruction}
           position={position}
@@ -275,14 +239,16 @@ export function App() {
           activity={activity}
           pausing={pausing}
           connectedAddress={address}
-          walletClient={walletClient}
+          authenticated={Boolean(authenticated && address)}
           saving={saving}
           onStreakChange={setStreak}
           onNavigateHome={() => navigateTo('setup')}
           onTogglePause={togglePause}
           onAddActivity={addActivity}
           onInstructionChange={setInstruction}
-          onSaveInstruction={() => saveInstruction(walletClient, address)}
+          onSaveInstruction={saveInstruction}
+          onWithdraw={handleWithdraw}
+          onConnect={login}
           onDisconnect={handleDisconnect}
         />
       )}

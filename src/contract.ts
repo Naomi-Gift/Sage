@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, custom, http, parseAbi, type WalletClient } from 'viem';
+import { createPublicClient, http, parseAbi, type WalletClient } from 'viem';
 import { appChain, appConfig } from './config';
 
 export const sageVaultAbi = parseAbi([
@@ -19,54 +19,13 @@ const erc20Abi = parseAbi([
 
 export const publicClient = createPublicClient({
   chain: appChain,
-  transport: http(appConfig.rpcUrl)
+  transport: http(appConfig.rpcUrl, {
+    timeout: 15_000,
+    retryCount: 3,
+    retryDelay: 1_000,
+  }),
+  pollingInterval: 1_000,
 });
-
-export async function connectInjectedWallet() {
-  if (!window.ethereum) {
-    throw new Error('No wallet found. Open Sage in MiniPay, GoodWallet, or a browser wallet.');
-  }
-
-  // Auto-switch to the correct chain if wallet is on the wrong one
-  try {
-    const chainIdHex = (await window.ethereum.request({ method: 'eth_chainId' })) as string;
-    const currentChainId = parseInt(chainIdHex, 16);
-    if (currentChainId !== appChain.id) {
-      try {
-        await window.ethereum.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: `0x${appChain.id.toString(16)}` }],
-        });
-      } catch (switchError: unknown) {
-        const err = switchError as { code?: number };
-        if (err?.code === 4902) {
-          await window.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [{
-              chainId: `0x${appChain.id.toString(16)}`,
-              chainName: appChain.name,
-              nativeCurrency: appChain.nativeCurrency,
-              rpcUrls: [appChain.rpcUrls.default.http[0]],
-              blockExplorerUrls: appChain.blockExplorers
-                ? [appChain.blockExplorers.default.url]
-                : [],
-            }],
-          });
-        }
-      }
-    }
-  } catch {
-    // ignore switch error if user cancels or provider handles it
-  }
-
-  const walletClient = createWalletClient({
-    chain: appChain,
-    transport: custom(window.ethereum)
-  });
-  const [address] = await walletClient.requestAddresses();
-
-  return { walletClient, address };
-}
 
 /// Read live G$ wallet balance for the connected address.
 export async function readGDollarBalance(
@@ -160,7 +119,7 @@ export async function writeInstruction(
     args: [BigInt(percentBps), goalLabel]
   });
   // Wait for the transaction to be confirmed
-  await publicClient.waitForTransactionReceipt({ hash });
+  await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
   return hash;
 }
 
@@ -175,7 +134,7 @@ export async function writePause(walletClient: WalletClient, address: `0x${strin
     abi: sageVaultAbi,
     functionName: 'pauseInstruction'
   });
-  await publicClient.waitForTransactionReceipt({ hash });
+  await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
   return hash;
 }
 
@@ -196,14 +155,7 @@ export async function writeWithdraw(
     functionName: 'withdraw',
     args: [stableAmount, minGdOut]
   });
-  await publicClient.waitForTransactionReceipt({ hash });
+  await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
   return hash;
 }
 
-declare global {
-  interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-    };
-  }
-}
