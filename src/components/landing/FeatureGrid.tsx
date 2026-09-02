@@ -168,7 +168,7 @@ export function FeatureGrid() {
                 <div className="ln-term-body">
                   <p><i>$</i> executeSaving()</p>
                   <p className="dim">Watching Claimed events…</p>
-                  <p><b>[OK]</b> Slice pulled · G$ → cUSD</p>
+                  <p><b>[OK]</b> Slice pulled · G$ to cUSD</p>
                   <p><b>[OK]</b> Supplied to Aave V3</p>
                   <div className="ln-term-load">
                     <span>On-chain on Celo</span>

@@ -166,7 +166,7 @@ export function ShareModal({ open, imageDataUrl, ctx, imageFile, onClose }: Shar
           >
             {/* Header */}
             <div className="share-modal-header">
-              <h2 className="share-modal-title">Share your glow-up ✨</h2>
+              <h2 className="share-modal-title">Share Your Savings Progress</h2>
               <button className="modal-close" onClick={onClose} aria-label="Close">
                 <X size={16} />
               </button>

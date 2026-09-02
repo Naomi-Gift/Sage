@@ -1,23 +1,30 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import {
+  AlertTriangle,
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
+  Award,
   Calendar,
+  Camera,
   Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CircleDollarSign,
   Clock,
   Coins,
   Copy,
   Download,
   ExternalLink,
   Flame,
+  Gem,
+  Gift,
   Home,
   Info,
   Layers,
   LogOut,
+  Medal,
   PanelLeftClose,
   PanelLeftOpen,
   Play,
@@ -26,6 +33,7 @@ import {
   Repeat2,
   Search,
   Share2,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Sprout,
@@ -44,6 +52,13 @@ import {
   getStreakTierInfo,
   checkGraceStatus,
 } from '../types';
+import { Mascot, type MascotStage } from '../components/mascot/Mascot';
+import { FlexCard } from '../components/dashboard/FlexCard';
+import { ShareModal } from '../components/dashboard/ShareModal';
+import { CoachMarks } from '../components/onboarding/CoachMark';
+import { ActivityFeed } from '../components/dashboard/ActivityFeed';
+import { MilestoneBadges } from '../components/dashboard/MilestoneBadges';
+import { EmptyState } from '../components/dashboard/EmptyState';
 import { SolarIcon } from '../components/landing/SolarIcon';
 import { UnicornBackground } from '../components/landing/UnicornBackground';
 import { appConfig, appChain } from '../config';
@@ -56,8 +71,25 @@ import {
   getReferralUrl,
   getLeaderboardOptIn,
   setLeaderboardOptIn,
+  hasClaimedWelcomeBonus,
+  markWelcomeBonusClaimed,
 } from '../lib/referral';
+import { useGoodDollarUbi } from '../hooks/useGoodDollarUbi';
+import { getFaceVerificationUrl } from '../services/goodDollarService';
 import { makePlatformUrl, copyToClipboard, type SharePlatform } from '../lib/shareLinks';
+
+function renderStreakTierIcon(iconName: string): ReactNode {
+  switch (iconName) {
+    case 'diamond':
+      return <Gem size={12} className="text-cyan-400" style={{ display: 'inline', marginRight: 4 }} />;
+    case 'flame':
+      return <Flame size={12} className="text-orange-400" style={{ display: 'inline', marginRight: 4 }} />;
+    case 'zap':
+      return <Zap size={12} className="text-amber-400" style={{ display: 'inline', marginRight: 4 }} />;
+    default:
+      return <Sprout size={12} className="text-emerald-400" style={{ display: 'inline', marginRight: 4 }} />;
+  }
+}
 
 type DashboardViewProps = {
   instruction: Instruction;
@@ -155,6 +187,18 @@ export function DashboardView({
   // Referral and downline statistics
   const referralStats = useMemo(() => getReferralStats(connectedAddress), [connectedAddress]);
   const referralUrl = useMemo(() => getReferralUrl(connectedAddress), [connectedAddress]);
+
+  // Official GoodDollar UBI & GoodID Identity hook
+  const {
+    isWhitelisted,
+    loadingWhitelist,
+    entitlementGD,
+    timeUntilReset,
+    verifying,
+    faceVerificationModalOpen,
+    setFaceVerificationModalOpen,
+    startFaceVerification,
+  } = useGoodDollarUbi(connectedAddress);
 
   useEffect(() => {
     quoteGdToUsdt(1000).then((usdt) => {
@@ -352,7 +396,8 @@ export function DashboardView({
       let txHash: string | undefined;
 
       if (onWithdraw && (swapSource === 'yield' || swapSource === 'total')) {
-        txHash = await onWithdraw(amountNum);
+        const res = await onWithdraw(amountNum);
+        txHash = typeof res === 'string' ? res : undefined;
       } else {
         await new Promise((r) => setTimeout(r, 1200));
         txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
@@ -384,7 +429,37 @@ export function DashboardView({
     }
   }
 
+  const [welcomeClaimed, setWelcomeClaimed] = useState(() => hasClaimedWelcomeBonus(connectedAddress));
+  const [welcomeModalOpen, setWelcomeModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (connectedAddress) {
+      setWelcomeClaimed(hasClaimedWelcomeBonus(connectedAddress));
+    }
+  }, [connectedAddress]);
+
+  function handleClaimWelcomeBonus() {
+    if (!connectedAddress) {
+      if (onConnect) onConnect();
+      return;
+    }
+    if (!isWhitelisted) {
+      toast.info('Please complete GoodID 3D face verification to activate your address and claim.');
+      startFaceVerification();
+      return;
+    }
+    markWelcomeBonusClaimed(connectedAddress);
+    setWelcomeClaimed(true);
+    // Execute real daily GoodDollar claim and automated vault deposit
+    handleCheckIn();
+  }
+
   function handleCheckIn() {
+    if (!isWhitelisted) {
+      startFaceVerification();
+      return;
+    }
+
     const todayKey = new Date().toISOString().slice(0, 10);
     const lastCheckIn = localStorage.getItem('sage.lastCheckIn');
     if (lastCheckIn === todayKey) {
@@ -398,20 +473,40 @@ export function DashboardView({
 
     // If more than 36 hours has elapsed since last check-in, restart streak from 1; otherwise increment
     const nextStreak = (lastCheckInTime > 0 && !grace.isAlive) ? 1 : streak + 1;
+    const tierInfo = getStreakTierInfo(nextStreak);
+
+    // Daily claim calculation: Live On-Chain UBI Entitlement + Streak Booster + Active Downline Multipliers
+    const baseClaimGD = entitlementGD || 50.0;
+    const streakBonusGD = Number((baseClaimGD * (tierInfo.boostApy / 100)).toFixed(2));
+    const downlineMultiplierPercent = referralStats.activeClaimBonusPercent || 0;
+    const referralBonusGD = Number((baseClaimGD * (downlineMultiplierPercent / 100)).toFixed(2));
+    const totalClaimGD = Number((baseClaimGD + streakBonusGD + referralBonusGD).toFixed(2));
+
+    const autoSavedGD = Number((totalClaimGD * (savePercent / 100)).toFixed(2));
+    const liquidGD = Number((totalClaimGD - autoSavedGD).toFixed(2));
 
     localStorage.setItem('sage.lastCheckIn', todayKey);
     localStorage.setItem('sage.lastCheckInTime', String(nowMs));
     localStorage.setItem('sage.streak', String(nextStreak));
     if (onStreakChange) onStreakChange(nextStreak);
+
     if (onAddActivity) {
       onAddActivity({
-        id: `streak-${Date.now()}`,
-        kind: 'milestone',
+        id: `claim-${Date.now()}`,
+        kind: 'save',
         date: todayKey,
         streakDay: nextStreak,
-        label: `${nextStreak}-day claim streak check-in 🔥`,
+        amountGD: autoSavedGD,
+        label: `Claimed G$ ${totalClaimGD.toFixed(2)} (${savePercent}% Auto-Saved · ${downlineMultiplierPercent > 0 ? `+${downlineMultiplierPercent}% Ref Bonus` : 'Direct UBI'})`,
       });
     }
+
+    toast.success(
+      `Claimed G$ ${totalClaimGD.toFixed(2)}: G$ ${autoSavedGD.toFixed(2)} auto-saved to Vault + G$ ${liquidGD.toFixed(2)} added to wallet!`,
+      `Day ${nextStreak} Check-in Complete`
+    );
+
+    setClaimInfoOpen(false);
     setStreakModalOpen(false);
     setClaimCelebrationOpen(true);
   }
@@ -739,6 +834,69 @@ export function DashboardView({
         {/* Scrollable Dashboard Body Section */}
         <main className="fs-scrollable-body">
           <div className="fs-content-wrap">
+            {/* Account Creation & Verification 50 G$ Welcome Bonus Banner - Connected Savers Only */}
+            {Boolean(connectedAddress) && !welcomeClaimed && (
+              <section
+                style={{
+                  background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(16, 185, 129, 0.12) 100%)',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                  borderRadius: '16px',
+                  padding: '16px 20px',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                  flexWrap: 'wrap',
+                  boxShadow: '0 8px 24px rgba(245, 158, 11, 0.08)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div
+                    style={{
+                      width: '42px',
+                      height: '42px',
+                      borderRadius: '12px',
+                      background: 'rgba(245, 158, 11, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Gift size={22} className="text-amber-400" />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#fef3c7' }}>
+                      {isWhitelisted ? '50 G$ Welcome Grant Ready!' : '50 G$ Welcome Grant Available!'}
+                    </h4>
+                    <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#cbd5e1' }}>
+                      {isWhitelisted
+                        ? 'GoodID verified. Claim your initial 50 G$ grant and kickstart your automated Aave compound vault on Celo.'
+                        : 'Complete GoodID 3D face verification on Celo to unlock and claim your initial 50 G$ grant.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClaimWelcomeBonus}
+                  style={{
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #10b981 100%)',
+                    color: '#090d16',
+                    border: 'none',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    padding: '10px 18px',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(245, 158, 11, 0.3)',
+                    transition: 'transform 0.15s ease',
+                  }}
+                >
+                  {isWhitelisted ? 'Claim 50 G$ Grant' : 'Verify GoodID & Claim 50 G$'}
+                </button>
+              </section>
+            )}
+
             {/* 0. Dedicated Special Position: Claim Streak Hero Banner */}
             <section className="fs-streak-hero-card">
               <div className="fs-streak-hero-left">
@@ -749,9 +907,40 @@ export function DashboardView({
                 <div className="fs-streak-info-col">
                   <div className="fs-streak-headline-row">
                     <h3 className="fs-streak-main-title">{streak} Day Claim Streak</h3>
-                    <span className="fs-streak-tier-badge">
-                      {streakTier.icon} {streakTier.name}
+                    <span className="fs-streak-tier-badge" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                      {renderStreakTierIcon(streakTier.icon)} {streakTier.name}
                     </span>
+                    {isWhitelisted ? (
+                      <span
+                        className="fs-streak-tier-badge"
+                        style={{
+                          background: 'rgba(16, 185, 129, 0.15)',
+                          color: '#34d399',
+                          borderColor: 'rgba(16, 185, 129, 0.35)',
+                        }}
+                      >
+                        <ShieldCheck size={11} style={{ display: 'inline', marginRight: 3 }} />
+                        GoodID Verified
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={startFaceVerification}
+                        className="fs-streak-tier-badge"
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.15)',
+                          color: '#f87171',
+                          borderColor: 'rgba(239, 68, 68, 0.35)',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <ShieldAlert size={11} />
+                        <span>Verify GoodID (10s)</span>
+                      </button>
+                    )}
                     {streakTier.boostApy > 0 && (
                       <span className="fs-streak-tier-badge" style={{ background: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.4)' }}>
                         <Zap size={11} style={{ display: 'inline', marginRight: 2 }} />
@@ -761,8 +950,10 @@ export function DashboardView({
                   </div>
                   <p className="fs-streak-sub-text">
                     {isCheckedInToday
-                      ? 'You claimed and auto-saved today! 36h Grace Window is active.'
-                      : 'Claim your daily GoodDollar today to extend your streak and compound at a higher APY.'}
+                      ? `You claimed and auto-saved today! Next 24h cycle in ${timeUntilReset || 'tomorrow'}.`
+                      : !isWhitelisted
+                      ? 'Complete your 1-step 3D face verification to start claiming daily UBI on Celo.'
+                      : `Claim your daily GoodDollar today to extend your streak and compound at ${effectiveApy}% APY.`}
                   </p>
                 </div>
               </div>
@@ -795,17 +986,28 @@ export function DashboardView({
                 <button
                   type="button"
                   className={`fs-streak-cta-btn ${isCheckedInToday ? 'is-done' : ''}`}
-                  onClick={isCheckedInToday ? () => setClaimInfoOpen(true) : handleCheckIn}
+                  onClick={
+                    !isWhitelisted
+                      ? startFaceVerification
+                      : isCheckedInToday
+                      ? () => setClaimInfoOpen(true)
+                      : handleCheckIn
+                  }
                 >
-                  {isCheckedInToday ? (
+                  {!isWhitelisted ? (
+                    <>
+                      <ShieldCheck size={16} />
+                      <span>Verify GoodID</span>
+                    </>
+                  ) : isCheckedInToday ? (
                     <>
                       <Check size={16} />
-                      <span>Claimed Today</span>
+                      <span>Claimed · Next in {timeUntilReset || '24h'}</span>
                     </>
                   ) : (
                     <>
                       <Flame size={16} />
-                      <span>Check In (+1 Day)</span>
+                      <span>Claim G$ {entitlementGD.toFixed(0)} & Auto-Save</span>
                     </>
                   )}
                 </button>
@@ -1191,7 +1393,10 @@ export function DashboardView({
                               ) : ev.kind === 'resume' ? (
                                 <span className="fs-tx-tag-pill fs-tx-tag-active">Active</span>
                               ) : ev.kind === 'milestone' ? (
-                                <span className="fs-tx-tag-pill fs-tx-tag-streak">🔥 {ev.streakDay ? `${ev.streakDay}d` : 'Streak'}</span>
+                                <span className="fs-tx-tag-pill fs-tx-tag-streak" style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  <Flame size={10} />
+                                  <span>{ev.streakDay ? `${ev.streakDay}d` : 'Streak'}</span>
+                                </span>
                               ) : (
                                 <span className="fs-tx-tag-pill fs-tx-tag-active">Updated</span>
                               )}
@@ -1441,7 +1646,7 @@ export function DashboardView({
                   setRuleModalOpen(false);
                 }}
               >
-                {saving ? 'Submitting to Celo…' : 'Save Rule on Celo →'}
+                {saving ? 'Submitting to Celo…' : 'Save Rule on Celo'}
               </button>
             </div>
           </div>
@@ -1561,18 +1766,20 @@ export function DashboardView({
                   <button
                     type="button"
                     className={`db-target-pill ${swapTarget === 'USDT' ? 'is-active' : ''}`}
-                    style={{ padding: '10px 12px', justifyContent: 'center' }}
+                    style={{ padding: '10px 12px', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 6 }}
                     onClick={() => setSwapTarget('USDT')}
                   >
-                    <span>💵 Tether (USDT)</span>
+                    <CircleDollarSign size={14} className="text-emerald-400" />
+                    <span>Tether (USDT)</span>
                   </button>
                   <button
                     type="button"
                     className={`db-target-pill ${swapTarget === 'USDC' ? 'is-active' : ''}`}
-                    style={{ padding: '10px 12px', justifyContent: 'center' }}
+                    style={{ padding: '10px 12px', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 6 }}
                     onClick={() => setSwapTarget('USDC')}
                   >
-                    <span>🔵 USD Coin (USDC)</span>
+                    <Coins size={14} className="text-blue-400" />
+                    <span>USD Coin (USDC)</span>
                   </button>
                 </div>
               </div>
@@ -1630,7 +1837,7 @@ export function DashboardView({
               >
                 {swapping
                   ? 'Executing Mento Swap…'
-                  : `Swap G$ to ${swapTarget} (Mento) →`}
+                  : `Swap G$ to ${swapTarget} (Mento)`}
               </button>
             </div>
           </div>
@@ -1665,18 +1872,20 @@ export function DashboardView({
                   <button
                     type="button"
                     className={`db-target-pill ${withdrawCurrency === 'GD' ? 'is-active' : ''}`}
-                    style={{ padding: '10px 12px', justifyContent: 'center' }}
+                    style={{ padding: '10px 12px', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 6 }}
                     onClick={() => setWithdrawCurrency('GD')}
                   >
-                    <span>🪙 G$ (GoodDollar)</span>
+                    <Coins size={14} className="text-purple-400" />
+                    <span>G$ (GoodDollar)</span>
                   </button>
                   <button
                     type="button"
                     className={`db-target-pill ${withdrawCurrency === 'USDT' ? 'is-active' : ''}`}
-                    style={{ padding: '10px 12px', justifyContent: 'center' }}
+                    style={{ padding: '10px 12px', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 6 }}
                     onClick={() => setWithdrawCurrency('USDT')}
                   >
-                    <span>💵 USDT (Mento Swap)</span>
+                    <CircleDollarSign size={14} className="text-emerald-400" />
+                    <span>USDT (Mento Swap)</span>
                   </button>
                 </div>
               </div>
@@ -1735,8 +1944,8 @@ export function DashboardView({
                 {withdrawing
                   ? 'Submitting to Celo…'
                   : withdrawCurrency === 'USDT'
-                  ? 'Withdraw as USDT (Mento Swap) →'
-                  : 'Withdraw to G$ →'}
+                  ? 'Withdraw as USDT (Mento Swap)'
+                  : 'Withdraw to G$'}
               </button>
             </div>
           </div>
@@ -1772,20 +1981,20 @@ export function DashboardView({
               <div className="db-claim-box">
                 <p>
                   <strong>Current Tier:</strong>{' '}
-                  <span className="text-amber-400 font-bold">
-                    {streakTier.icon} {streakTier.name} ({effectiveApy}% APY)
+                  <span className="text-amber-400 font-bold" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    {renderStreakTierIcon(streakTier.icon)} {streakTier.name} ({effectiveApy}% APY)
                   </span>
                 </p>
                 <p>
                   <strong>36-Hour Grace Window:</strong>{' '}
                   <span className="text-emerald-400">
-                    {graceStatus.isAlive ? `Active (${graceStatus.hoursRemaining}h remaining) ⏳` : 'Expired'}
+                    {graceStatus.isAlive ? `Active (${graceStatus.hoursRemaining}h remaining)` : 'Expired'}
                   </span>
                 </p>
                 <p>
                   <strong>Today's Check-in:</strong>{' '}
                   {isCheckedInToday ? (
-                    <span className="text-emerald-400">Claimed & Saved ✅</span>
+                    <span className="text-emerald-400">Claimed & Saved</span>
                   ) : (
                     <span className="text-amber-400">Pending (+1 Day Available)</span>
                   )}
@@ -1799,7 +2008,7 @@ export function DashboardView({
                 className="ln-plan-cta-solid db-activate-btn"
                 onClick={handleCheckIn}
               >
-                {isCheckedInToday ? 'Extend Streak Tomorrow 🔥' : 'Check in for Today (+1 Day) 🔥'}
+                {isCheckedInToday ? 'Extend Streak Tomorrow' : 'Check in for Today (+1 Day)'}
               </button>
             </div>
           </div>
@@ -1830,8 +2039,10 @@ export function DashboardView({
                     <Flame size={24} className="text-amber-400" />
                   </div>
                   <div>
-                    <strong className="fs-share-card-title">{streak} Day Claim Streak 🔥</strong>
-                    <span className="fs-share-card-sub">{streakTier.icon} {streakTier.name} · Celo Network</span>
+                    <strong className="fs-share-card-title">{streak} Day Claim Streak</strong>
+                    <span className="fs-share-card-sub" style={{ display: 'flex', alignItems: 'center' }}>
+                      {renderStreakTierIcon(streakTier.icon)} {streakTier.name} · Celo Network
+                    </span>
                   </div>
                 </div>
                 <div className="fs-share-metrics-row">
@@ -1853,7 +2064,7 @@ export function DashboardView({
               <div className="fs-share-buttons-grid">
                 <a
                   href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
-                    `🔥 Just reached a ${streak}-day streak on @SageProtocol!\n\nAuto-saving my daily GoodDollar into Aave on Celo earning ${effectiveApy}% APY.\n\nStart saving with my invite: ${referralUrl}\n\n#GoodDollar #Celo #DeFi`
+                    `Just reached a ${streak}-day streak on @SageProtocol!\n\nAuto-saving my daily GoodDollar into Aave on Celo earning ${effectiveApy}% APY.\n\nStart saving with my invite: ${referralUrl}\n\n#GoodDollar #Celo #DeFi`
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -1919,7 +2130,7 @@ export function DashboardView({
                 className="ln-plan-cta-solid db-activate-btn"
                 style={{ width: '100%', justifyContent: 'center' }}
                 onClick={async () => {
-                  const shareTxt = `${streak} day streak 🔥 G$ ${Math.round(total).toLocaleString()} saved with @SageProtocol earning ${effectiveApy}% APY. Join: ${referralUrl}`;
+                  const shareTxt = `${streak} day streak · G$ ${Math.round(total).toLocaleString()} saved with @SageProtocol earning ${effectiveApy}% APY. Join: ${referralUrl}`;
                   const ok = await copyToClipboard(shareTxt);
                   if (ok) {
                     setCopiedLink(true);
@@ -1962,7 +2173,7 @@ export function DashboardView({
 
             <div className="db-modal-body">
               <p className="db-modal-desc">
-                Invite fellow GoodDollar claimers to Sage. The more downlines save, the higher bonus claim multiplier you earn.
+                Invite fellow GoodDollar claimers to Sage. Earn <strong>50 G$</strong> upon verification, plus <strong>+5% (Tier 1)</strong> and <strong>+2% (Tier 2)</strong> daily claim boosts as long as your referees keep their active claim streaks!
               </p>
 
               {/* Referral Link Box */}
@@ -1993,34 +2204,111 @@ export function DashboardView({
                 </div>
               </div>
 
-              {/* Bonus Structure */}
-              <div className="db-claim-box" style={{ marginTop: 12 }}>
-                <p>
-                  <strong>Direct Downline (Tier 1):</strong>{' '}
-                  <span className="text-emerald-400">+5% Bonus Claim Multiplier</span>
-                </p>
-                <p>
-                  <strong>Secondary Downline (Tier 2):</strong>{' '}
-                  <span className="text-cyan-400">+2% Bonus Claim Multiplier</span>
-                </p>
-                <p>
-                  <strong>Total Referral Downlines:</strong>{' '}
-                  <span>{referralStats.totalReferrals} Savers</span>
-                </p>
+              {/* Multi-Reward Stats Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '12px' }}>
+                <div className="db-claim-box" style={{ margin: 0 }}>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Verification Rewards</span>
+                  <strong style={{ display: 'block', fontSize: '16px', color: '#fbbf24', marginTop: '2px' }}>
+                    {referralStats.verificationRewardsEarnedGD} G$
+                  </strong>
+                  <span style={{ fontSize: '10px', color: '#64748b' }}>50 G$ per verified referee</span>
+                </div>
+                <div className="db-claim-box" style={{ margin: 0 }}>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Active Claim Boost</span>
+                  <strong style={{ display: 'block', fontSize: '16px', color: '#34d399', marginTop: '2px' }}>
+                    +{referralStats.activeClaimBonusPercent}%
+                  </strong>
+                  <span style={{ fontSize: '10px', color: '#64748b' }}>From active streak downlines</span>
+                </div>
+              </div>
+
+              {/* Downlines Streak Activity Table */}
+              <div style={{ marginTop: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ margin: 0, fontSize: '12px', fontWeight: 600, color: '#e2e8f0' }}>
+                    Referred Savers ({referralStats.totalReferrals})
+                  </label>
+                  <span style={{ fontSize: '11px', color: '#34d399' }}>
+                    {referralStats.activeTier1Count + referralStats.activeTier2Count} Active Streaks
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '160px', overflowY: 'auto' }}>
+                  {referralStats.downlines.map((refUser, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        background: refUser.isActive ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                        border: `1px solid ${refUser.isActive ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.06)'}`,
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#f8fafc' }}>
+                            {refUser.alias || refUser.address}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '9px',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              background: refUser.tier === 1 ? 'rgba(59, 130, 246, 0.2)' : 'rgba(168, 85, 247, 0.2)',
+                              color: refUser.tier === 1 ? '#93c5fd' : '#d8b4fe',
+                              fontWeight: 700,
+                            }}
+                          >
+                            Tier {refUser.tier}
+                          </span>
+                          {refUser.verified && (
+                            <span style={{ fontSize: '9px', color: '#10b981', fontWeight: 600 }}>Verified (+50 G$)</span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '10px', color: '#64748b' }}>Joined {refUser.joinedAt}</span>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        {refUser.isActive ? (
+                          <>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '11px', fontWeight: 700, color: '#fbbf24' }}>
+                              <Flame size={11} /> {refUser.streak}d Streak
+                            </span>
+                            <span style={{ fontSize: '10px', color: '#34d399', fontWeight: 600, display: 'block' }}>
+                              +{refUser.tier === 1 ? '5%' : '2%'} Claim Bonus
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '11px', color: '#94a3b8' }}>
+                              <AlertTriangle size={11} /> Streak Lapsed
+                            </span>
+                            <span style={{ fontSize: '10px', color: '#ef4444', display: 'block' }}>
+                              0% (Streak Required)
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
             <div className="db-modal-foot">
               <a
                 href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
-                  `Start auto-saving your daily GoodDollar into Aave on Celo with @SageProtocol 🌿 Grow your funds with compound yield:\n${referralUrl}`
+                  `Start auto-saving your daily GoodDollar into Aave on Celo with @SageProtocol. Claim a 50 G$ Welcome Grant and earn compound yield:\n${referralUrl}`
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="ln-plan-cta-solid db-activate-btn"
                 style={{ textAlign: 'center', textDecoration: 'none' }}
               >
-                Share Invite Link on X 🚀
+                Share Invite Link on X
               </a>
             </div>
           </div>
@@ -2051,11 +2339,11 @@ export function DashboardView({
               {/* Leaderboard Table */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '14px 0' }}>
                 {[
-                  { rank: '🥇', addr: '0x3F8a…92B1', streak: 124, saved: 18450, badge: '💎 Diamond' },
-                  { rank: '🥈', addr: '0x88Cc…44F0', streak: 89, saved: 12200, badge: '🔥 Flame' },
-                  { rank: '🥉', addr: '0x12Fe…77A9', streak: 62, saved: 8900, badge: '🔥 Flame' },
-                  { rank: '#4', addr: '0x55Ba…11C2', streak: 41, saved: 5400, badge: '🔥 Flame' },
-                  { rank: '#5', addr: shortAddress, streak: streak, saved: Math.round(total), badge: streakTier.name, isYou: true },
+                  { rank: '#1', rankIcon: <Trophy size={14} className="text-amber-400" />, addr: '0x3F8a…92B1', streak: 124, saved: 18450, badge: 'Diamond Saver' },
+                  { rank: '#2', rankIcon: <Award size={14} className="text-slate-300" />, addr: '0x88Cc…44F0', streak: 89, saved: 12200, badge: 'Flame Master' },
+                  { rank: '#3', rankIcon: <Medal size={14} className="text-amber-600" />, addr: '0x12Fe…77A9', streak: 62, saved: 8900, badge: 'Flame Master' },
+                  { rank: '#4', rankIcon: <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8' }}>#4</span>, addr: '0x55Ba…11C2', streak: 41, saved: 5400, badge: 'Flame Master' },
+                  { rank: '#5', rankIcon: <span style={{ fontSize: 11, fontWeight: 700, color: '#34d399' }}>#5</span>, addr: shortAddress, streak: streak, saved: Math.round(total), badge: streakTier.name, isYou: true },
                 ].map((row, idx) => (
                   <div
                     key={idx}
@@ -2070,7 +2358,9 @@ export function DashboardView({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontSize: '14px', fontWeight: 700, minWidth: 24 }}>{row.rank}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 24 }}>
+                        {row.rankIcon}
+                      </span>
                       <div>
                         <strong style={{ fontSize: '13px', color: row.isYou ? '#34d399' : '#e2e8f0' }}>
                           {row.addr} {row.isYou ? '(You)' : ''}
@@ -2082,7 +2372,10 @@ export function DashboardView({
                       <span style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc' }}>
                         G$ {row.saved.toLocaleString()}
                       </span>
-                      <div style={{ fontSize: '11px', color: '#f59e0b' }}>{row.streak}d streak 🔥</div>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '11px', color: '#f59e0b' }}>
+                        <Flame size={10} />
+                        <span>{row.streak}d streak</span>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -2117,12 +2410,103 @@ export function DashboardView({
       )}
 
 
-      {/* Daily Claim Info Modal */}
+      {/* Official GoodID FaceTec 3D Verification Modal */}
+      {faceVerificationModalOpen && (
+        <div className="db-modal-overlay" onClick={() => setFaceVerificationModalOpen(false)}>
+          <div className="db-modal-card" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="db-modal-head">
+              <h4>GoodID Face Verification</h4>
+              <button
+                type="button"
+                className="db-modal-close"
+                onClick={() => setFaceVerificationModalOpen(false)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="db-modal-body" style={{ textAlign: 'center', padding: '16px 12px' }}>
+              <div
+                style={{
+                  width: 60,
+                  height: 60,
+                  borderRadius: '50%',
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  border: '2px solid rgba(16, 185, 129, 0.4)',
+                  margin: '0 auto 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <ShieldCheck size={30} className="text-emerald-400" />
+              </div>
+              <h3 style={{ fontSize: 17, color: '#f8fafc', margin: '0 0 6px', fontWeight: 700 }}>
+                Proof of Unique Humanity
+              </h3>
+              <p className="db-modal-desc" style={{ fontSize: 13, margin: '0 auto 14px', color: '#94a3b8' }}>
+                GoodDollar uses a 10-second 3D face liveness scan to verify you are a real human and unlock your daily UBI entitlement on Celo.
+              </p>
+
+              <div className="db-claim-box" style={{ textAlign: 'left', marginBottom: 14 }}>
+                <p>
+                  <strong>Biometric Standard:</strong> FaceTec 3D Liveness (Zero ID Document)
+                </p>
+                <p>
+                  <strong>Blockchain:</strong> Celo Network (<span className="text-emerald-400">Identity.sol</span>)
+                </p>
+                <p>
+                  <strong>Relayer Status:</strong>{' '}
+                  {verifying ? (
+                    <span className="text-amber-400 font-semibold">
+                      Waiting for camera scan completion… (Live Polling)
+                    </span>
+                  ) : (
+                    <span className="text-emerald-400 font-semibold">Ready to scan</span>
+                  )}
+                </p>
+              </div>
+
+              {verifying ? (
+                <div
+                  style={{
+                    padding: '12px',
+                    background: 'rgba(245, 158, 11, 0.12)',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    borderRadius: 10,
+                    fontSize: 12,
+                    color: '#fef3c7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <Camera size={16} className="text-amber-400" />
+                  <span>Camera window open. Complete the 3D scan to activate your address.</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="ln-plan-cta-solid db-activate-btn"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={startFaceVerification}
+                >
+                  Launch 3D Face Scan (10s)
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Daily Claim & Auto-Save Direct Modal */}
       {claimInfoOpen && (
         <div className="db-modal-overlay" onClick={() => setClaimInfoOpen(false)}>
           <div className="db-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="db-modal-head">
-              <h4>GoodDollar Daily Claim</h4>
+              <h4>Daily GoodDollar Claim & Auto-Save</h4>
               <button
                 type="button"
                 className="db-modal-close"
@@ -2134,30 +2518,80 @@ export function DashboardView({
 
             <div className="db-modal-body">
               <p className="db-modal-desc">
-                Sage automatically intercepts {savePercent}% of every daily GoodDollar claim
-                and routes it into Aave V3 on Celo.
+                Claim your daily UBI directly in Sage. Sage automatically intercepts {savePercent}% and deposits it into Aave V3 on Celo to earn {effectiveApy}% APY.
               </p>
+
               <div className="db-claim-box">
                 <p>
-                  <strong>Current Streak:</strong> {streak} days 🔥
+                  <strong>Base UBI Allocation:</strong>{' '}
+                  <span className="text-emerald-400 font-bold">50.00 G$</span>
+                </p>
+                {referralStats.activeClaimBonusPercent > 0 && (
+                  <p>
+                    <strong>Active Downlines Boost (+{referralStats.activeClaimBonusPercent}%):</strong>{' '}
+                    <span className="text-amber-400 font-bold">
+                      +{(50 * (referralStats.activeClaimBonusPercent / 100)).toFixed(2)} G$
+                    </span>
+                  </p>
+                )}
+                <p>
+                  <strong>Total Daily Claim:</strong>{' '}
+                  <span className="text-emerald-300 font-bold" style={{ fontSize: '15px' }}>
+                    {(50 + 50 * (referralStats.activeClaimBonusPercent / 100)).toFixed(2)} G$
+                  </span>
                 </p>
                 <p>
-                  <strong>Status:</strong>{' '}
-                  <span className="text-emerald-400">Sage Agent Watching</span>
+                  <strong>Auto-Saved to Vault ({savePercent}%):</strong>{' '}
+                  <span className="text-cyan-400 font-bold">
+                    {((50 + 50 * (referralStats.activeClaimBonusPercent / 100)) * (savePercent / 100)).toFixed(2)} G$ (Aave V3)
+                  </span>
+                </p>
+                <p>
+                  <strong>Liquid to Wallet:</strong>{' '}
+                  <span className="text-slate-200">
+                    {((50 + 50 * (referralStats.activeClaimBonusPercent / 100)) * (1 - savePercent / 100)).toFixed(2)} G$
+                  </span>
+                </p>
+                <p>
+                  <strong>Streak Tier Boost:</strong>{' '}
+                  <span className="text-amber-400 font-semibold" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    {renderStreakTierIcon(streakTier.icon)} {streakTier.name} (+{streakTier.boostApy}% APY)
+                  </span>
+                </p>
+                <p>
+                  <strong>Current Claim Streak:</strong>{' '}
+                  <span>{streak} days (36h Grace Window Active)</span>
                 </p>
               </div>
             </div>
 
             <div className="db-modal-foot">
-              <a
-                href="https://gooddollar.org"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ln-plan-cta-solid db-activate-btn"
-                style={{ textAlign: 'center', textDecoration: 'none' }}
-              >
-                Open GoodDollar App <ExternalLink size={14} style={{ display: 'inline', marginLeft: 4 }} />
-              </a>
+              {isCheckedInToday ? (
+                <button
+                  type="button"
+                  className="ln-plan-cta-solid db-activate-btn"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={() => {
+                    setClaimInfoOpen(false);
+                    setShareModalOpen(true);
+                  }}
+                >
+                  <Check size={16} />
+                  <span>Claimed Today · Share on X</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ln-plan-cta-solid db-activate-btn"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={handleCheckIn}
+                >
+                  <Flame size={16} />
+                  <span>
+                    Claim G$ {(50 + 50 * (referralStats.activeClaimBonusPercent / 100)).toFixed(2)} & Auto-Save ({savePercent}%)
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -2484,7 +2918,10 @@ export function DashboardView({
                         ) : ev.kind === 'resume' ? (
                           <span className="fs-tx-tag-pill fs-tx-tag-active">Active</span>
                         ) : ev.kind === 'milestone' ? (
-                          <span className="fs-tx-tag-pill fs-tx-tag-streak">🔥 {ev.streakDay ? `${ev.streakDay}d` : 'Streak'}</span>
+                          <span className="fs-tx-tag-pill fs-tx-tag-streak" style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <Flame size={10} />
+                            <span>{ev.streakDay ? `${ev.streakDay}d` : 'Streak'}</span>
+                          </span>
                         ) : (
                           <span className="fs-tx-tag-pill fs-tx-tag-active">Updated</span>
                         )}
@@ -2527,6 +2964,129 @@ export function DashboardView({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FaceTec 3D GoodID Verification Modal */}
+      {faceVerificationModalOpen && (
+        <div className="db-modal-overlay" onClick={() => setFaceVerificationModalOpen(false)}>
+          <div className="db-modal-card fs-facetec-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="db-modal-head">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldCheck size={20} className="text-emerald-400" />
+                <h4>GoodID 3D Face Verification</h4>
+              </div>
+              <button
+                type="button"
+                className="db-modal-close"
+                onClick={() => setFaceVerificationModalOpen(false)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="db-modal-body" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}>
+              <div
+                style={{
+                  width: '64px',
+                  height: '64px',
+                  borderRadius: '20px',
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 1rem',
+                }}
+              >
+                <Camera size={28} className="text-emerald-400" />
+              </div>
+
+              <h4 style={{ fontSize: '1.2rem', color: '#fff', margin: '0 0 8px' }}>
+                Verify Proof of Humanity
+              </h4>
+              <p className="db-modal-desc" style={{ fontSize: '13px', lineHeight: 1.6, color: '#94a3b8' }}>
+                GoodDollar uses official <strong>FaceTec 3D Liveness Detection</strong> to ensure 1 human = 1 daily basic income claim. The scan takes just 10 seconds and keeps your biometric data completely private.
+              </p>
+
+              <div
+                style={{
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '12px',
+                  padding: '12px 16px',
+                  margin: '1.25rem 0',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  color: '#cbd5e1',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Check size={14} className="text-emerald-400" />
+                  <span>100% Non-custodial & Zero-knowledge verified</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Check size={14} className="text-emerald-400" />
+                  <span>Unlocks daily on-chain G$ UBI distributions</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Check size={14} className="text-emerald-400" />
+                  <span>Eligible for automatic Aave yield compounding</span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <a
+                  href={getFaceVerificationUrl(connectedAddress)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ln-plan-cta-solid"
+                  style={{
+                    width: '100%',
+                    justifyContent: 'center',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    textDecoration: 'none',
+                    padding: '12px',
+                    fontSize: '14px',
+                  }}
+                >
+                  <ExternalLink size={16} />
+                  <span>Verify on GoodID Portal</span>
+                </a>
+                <a
+                  href="https://wallet.gooddollar.org"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="fs-modal-cancel-btn"
+                  style={{
+                    width: '100%',
+                    justifyContent: 'center',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    textDecoration: 'none',
+                    padding: '10px',
+                    fontSize: '13px',
+                    color: '#94a3b8',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <ExternalLink size={14} />
+                  <span>Or Verify via GoodDollar Web App</span>
+                </a>
+              </div>
+              <p style={{ fontSize: '11px', color: '#64748b', margin: '12px 0 0' }}>
+                Connect your wallet on GoodDollar and complete the 10-second FaceTec 3D scan. Sage will automatically detect your on-chain verification on Celo.
+              </p>
             </div>
           </div>
         </div>
@@ -2632,7 +3192,7 @@ export function DashboardView({
               </div>
 
               <div>
-                <h3 className="fs-celebration-title">Streak Extended! 🔥</h3>
+                <h3 className="fs-celebration-title">Streak Extended!</h3>
                 <p className="fs-celebration-streak-count">{streak} Day Claim Streak Reached</p>
                 <p className="fs-celebration-desc">
                   Your daily GoodDollar check-in is verified on Celo. Your automated {savePercent}% savings rule is actively compounding in Aave V3.
@@ -2675,7 +3235,7 @@ export function DashboardView({
                   className="fs-celebration-done-btn"
                   onClick={() => setClaimCelebrationOpen(false)}
                 >
-                  <span>Keep Saving 🚀</span>
+                  <span>Keep Saving</span>
                 </button>
               </div>
             </div>
@@ -2716,7 +3276,7 @@ export function DashboardView({
                 style={{ width: '100%', justifyContent: 'center' }}
                 onClick={() => setAlreadyClaimedNoticeOpen(false)}
               >
-                Got It 👍
+                Got It
               </button>
             </div>
           </div>

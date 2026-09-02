@@ -1,4 +1,5 @@
 import { forwardRef } from 'react';
+import { Sprout, Flame } from 'lucide-react';
 import { Mascot, type MascotStage } from '../mascot/Mascot';
 
 type FlexCardProps = {
@@ -25,7 +26,10 @@ export const FlexCard = forwardRef<HTMLDivElement, FlexCardProps>(
           {/* Top row: branding */}
           <div className="flex-card-brand">
             <span className="flex-card-logo">Sage</span>
-            <span className="flex-card-apy">🌱 {apy}% APY</span>
+            <span className="flex-card-apy" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Sprout size={12} className="text-emerald-400" />
+              {apy}% APY
+            </span>
           </div>
 
           {/* Mascot */}
@@ -41,7 +45,10 @@ export const FlexCard = forwardRef<HTMLDivElement, FlexCardProps>(
             </div>
             <div className="flex-card-streak">
               <span className="flex-card-streak-num">{streak}</span>
-              <span className="flex-card-streak-label">day streak 🔥</span>
+              <span className="flex-card-streak-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                day streak
+                <Flame size={12} className="text-orange-400" />
+              </span>
             </div>
           </div>
 

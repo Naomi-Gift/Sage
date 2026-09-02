@@ -15,7 +15,7 @@ export function EmptyState({ savePercent }: EmptyStateProps) {
     >
       <Mascot stage="seedling" compact />
       <div className="empty-state-copy">
-        <h2>Your first save is coming 🌱</h2>
+        <h2>Your first save is coming</h2>
         <p>
           Sage is watching your next daily G$ claim.
           When it arrives, we'll automatically set aside{' '}

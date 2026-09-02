@@ -1,17 +1,29 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { X, MousePointerClick, Zap, ArrowDownLeft } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 type CoachStep = {
   key: string;
   message: string;
-  emoji: string;
+  icon: ReactNode;
 };
 
 const STEPS: CoachStep[] = [
-  { key: 'tap-mascot',  emoji: '👆', message: 'Tap the mascot every day to check in and grow your streak.' },
-  { key: 'auto-saves',  emoji: '⚡', message: 'Sage saves automatically  no action needed on your end.' },
-  { key: 'withdraw',    emoji: '💸', message: 'Withdraw anytime. Your money stays yours, always in G$.' },
+  {
+    key: 'tap-mascot',
+    icon: <MousePointerClick size={16} className="text-purple-400" />,
+    message: 'Tap the mascot every day to check in and grow your streak.',
+  },
+  {
+    key: 'auto-saves',
+    icon: <Zap size={16} className="text-amber-400" />,
+    message: 'Sage saves automatically — no action needed on your end.',
+  },
+  {
+    key: 'withdraw',
+    icon: <ArrowDownLeft size={16} className="text-emerald-400" />,
+    message: 'Withdraw anytime. Your money stays yours, always in G$.',
+  },
 ];
 
 const STORAGE_KEY = 'sage.coachDismissed';
@@ -59,7 +71,9 @@ export function CoachMarks() {
           role="status"
           aria-live="polite"
         >
-          <span className="coach-emoji" aria-hidden="true">{current.emoji}</span>
+          <span className="coach-icon" aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {current.icon}
+          </span>
           <p className="coach-text">{current.message}</p>
           <div className="coach-actions">
             <div className="coach-dots">

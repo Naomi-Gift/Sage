@@ -16,6 +16,9 @@ const kindMeta: Record<ActivityEvent['kind'], {
   withdraw:  { icon: <ArrowDownLeft size={14} />, iconClass: 'feed-icon-withdraw',  color: 'var(--pink)' },
   milestone: { icon: <Star size={14} />,          iconClass: 'feed-icon-milestone', color: 'var(--yellow)' },
   'level-up':{ icon: <Zap size={14} />,           iconClass: 'feed-icon-levelup',   color: 'var(--pink)' },
+  rule:      { icon: <TrendingUp size={14} />,    iconClass: 'feed-icon-rule',      color: 'var(--purple)' },
+  pause:     { icon: <TrendingUp size={14} />,    iconClass: 'feed-icon-pause',     color: 'var(--yellow)' },
+  resume:    { icon: <TrendingUp size={14} />,    iconClass: 'feed-icon-resume',    color: 'var(--green)' },
 };
 
 function formatDate(iso: string) {
@@ -44,7 +47,7 @@ export function ActivityFeed({ events }: ActivityFeedProps) {
   if (events.length === 0) {
     return (
       <div className="feed-empty">
-        <span>🌱</span>
+        <Sparkles size={24} className="text-purple-400 opacity-60" />
         <p>Your first save is on its way. Check back tomorrow.</p>
       </div>
     );

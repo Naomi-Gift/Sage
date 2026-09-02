@@ -44,12 +44,12 @@ export function App() {
   const milestones = useMemo<Milestone[]>(() => {
     const totalSaved = position.principalGD + position.yieldGD;
     return [
-      { kind: '7d',    label: '7-day streak',    reached: streak >= 7,    icon: '⚡' },
-      { kind: '30d',   label: '30-day streak',   reached: streak >= 30,   icon: '🔥' },
-      { kind: '100d',  label: '100-day streak',  reached: streak >= 100,  icon: '💎' },
-      { kind: '500g',  label: '500 G$ saved',    reached: totalSaved >= 500,  icon: '🌿' },
-      { kind: '1000g', label: '1,000 G$ saved',  reached: totalSaved >= 1000, icon: '🌳' },
-      { kind: '2000g', label: '2,000 G$ saved',  reached: totalSaved >= 2000, icon: '🏆' },
+      { kind: '7d',    label: '7-day streak',    reached: streak >= 7,    icon: 'zap' },
+      { kind: '30d',   label: '30-day streak',   reached: streak >= 30,   icon: 'flame' },
+      { kind: '100d',  label: '100-day streak',  reached: streak >= 100,  icon: 'diamond' },
+      { kind: '500g',  label: '500 G$ saved',    reached: totalSaved >= 500,  icon: 'sprout' },
+      { kind: '1000g', label: '1,000 G$ saved',  reached: totalSaved >= 1000, icon: 'tree' },
+      { kind: '2000g', label: '2,000 G$ saved',  reached: totalSaved >= 2000, icon: 'trophy' },
     ];
   }, [streak, position]);
 

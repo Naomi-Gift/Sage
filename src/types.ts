@@ -79,7 +79,7 @@ export function getStreakTierInfo(streak: number): StreakTier {
       tier: 'diamond',
       boostApy: 1.0,
       effectiveApy: PROTOCOL_BASE_APY + 1.0,
-      icon: '💎',
+      icon: 'diamond',
       minStreak: 100,
     };
   }
@@ -89,7 +89,7 @@ export function getStreakTierInfo(streak: number): StreakTier {
       tier: 'gold',
       boostApy: 0.5,
       effectiveApy: PROTOCOL_BASE_APY + 0.5,
-      icon: '🔥',
+      icon: 'flame',
       minStreak: 30,
     };
   }
@@ -99,7 +99,7 @@ export function getStreakTierInfo(streak: number): StreakTier {
       tier: 'silver',
       boostApy: 0.2,
       effectiveApy: PROTOCOL_BASE_APY + 0.2,
-      icon: '⚡',
+      icon: 'zap',
       minStreak: 7,
     };
   }
@@ -108,7 +108,7 @@ export function getStreakTierInfo(streak: number): StreakTier {
     tier: 'bronze',
     boostApy: 0.0,
     effectiveApy: PROTOCOL_BASE_APY,
-    icon: '🌱',
+    icon: 'sprout',
     minStreak: 0,
   };
 }

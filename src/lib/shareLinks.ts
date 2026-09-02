@@ -34,15 +34,15 @@ function shareText(ctx: ShareContext): string {
   const amount = Math.round(ctx.savedAmountGD).toLocaleString();
   const goal   = ctx.goalLabel?.trim() ? ` toward my ${ctx.goalLabel.trim()}` : '';
   return (
-    `${ctx.streak} day streak 🔥  G$ ${amount} saved & growing${goal}.\n\n` +
-    `My G$ earns ${ctx.apy}% APY automatically with Sage  no effort needed.\n\n` +
-    `Try it free 👇`
+    `${ctx.streak} day streak · G$ ${amount} saved & growing${goal}.\n\n` +
+    `My G$ earns ${ctx.apy}% APY automatically with Sage — no effort needed.\n\n` +
+    `Start saving today:`
   );
 }
 
 function shortShareText(ctx: ShareContext): string {
   const amount = Math.round(ctx.savedAmountGD).toLocaleString();
-  return `${ctx.streak}🔥 streak · G$ ${amount} saved · ${ctx.apy}% APY via @SageApp`;
+  return `${ctx.streak} day streak · G$ ${amount} saved · ${ctx.apy}% APY via @SageApp`;
 }
 
 // ─── Platform URLs ─────────────────────────────────────────────────────────────
